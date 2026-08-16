@@ -145,20 +145,33 @@ public class NetworkManager : SingletonScriptableObject<NetworkManager>, IPunOwn
         Popup popup = PopupHandler.instance?.SpawnPopup("Connect");
         MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
 
+        Exception failure = null;
+        KoboldKareConnectionOptions options = new KoboldKareConnectionOptions(
+            "localhost",
+            KoboldKareConnectionService.DefaultPort,
+            password ?? string.Empty,
+            ResolveDisplayName(),
+            true,
+            string.IsNullOrWhiteSpace(serverName) ? "KoboldKare" : serverName.Trim(),
+            Mathf.Clamp(maxPlayers, 1, ushort.MaxValue));
+
+        Task connectTask = null;
         try {
-            KoboldKareConnectionOptions options = new KoboldKareConnectionOptions(
-                "localhost",
-                KoboldKareConnectionService.DefaultPort,
-                password ?? string.Empty,
-                ResolveDisplayName(),
-                true,
-                string.IsNullOrWhiteSpace(serverName) ? "KoboldKare" : serverName.Trim(),
-                Mathf.Clamp(maxPlayers, 1, ushort.MaxValue));
+            connectTask = KoboldKareConnectionService.ConnectAsync(options);
+        } catch (Exception exception) {
+            failure = exception;
+        }
 
-            Task connectTask = KoboldKareConnectionService.ConnectAsync(options);
+        if (failure == null) {
             yield return new WaitUntil(() => connectTask.IsCompleted);
-            ThrowIfTaskFailed(connectTask, "Basis server connection failed.");
+            try {
+                ThrowIfTaskFailed(connectTask, "Basis server connection failed.");
+            } catch (Exception exception) {
+                failure = exception;
+            }
+        }
 
+        if (failure == null) {
             float deadline = Time.realtimeSinceStartup + 10f;
             yield return new WaitUntil(() => {
                 KoboldKareNetworkWorld world = KoboldKareNetworkWorld.Instance;
@@ -168,36 +181,41 @@ public class NetworkManager : SingletonScriptableObject<NetworkManager>, IPunOwn
                        Time.realtimeSinceStartup >= deadline;
             });
 
-            KoboldKareNetworkWorld readyWorld = KoboldKareNetworkWorld.Instance;
-            KoboldKareSessionCoordinator readySession = KoboldKareSessionCoordinator.Instance;
-            if (readyWorld == null || readySession == null ||
-                !readyWorld.HasNetworkID || !readyWorld.IsWorldAuthority || !readySession.HasNetworkID) {
-                throw new TimeoutException("KoboldKare Basis session objects did not become network-ready.");
-            }
+            try {
+                KoboldKareNetworkWorld readyWorld = KoboldKareNetworkWorld.Instance;
+                KoboldKareSessionCoordinator readySession = KoboldKareSessionCoordinator.Instance;
+                if (readyWorld == null || readySession == null ||
+                    !readyWorld.HasNetworkID || !readyWorld.IsWorldAuthority || !readySession.HasNetworkID) {
+                    throw new TimeoutException("KoboldKare Basis session objects did not become network-ready.");
+                }
 
-            // Directory publication/private visibility is a server-directory concern, not gameplay
-            // authority state. Keep the UI option accepted while provider-side publication is wired.
-            _ = privateRoom;
+                // Directory publication/private visibility is a server-directory concern, not gameplay
+                // authority state. Keep the UI option accepted while provider-side publication is wired.
+                _ = privateRoom;
 
-            if (!readySession.SetSessionState(
-                    selectedMap,
-                    BuildCurrentModListJson(),
-                    cheatsEnabled)) {
-                throw new InvalidOperationException("Failed to publish KoboldKare Basis session state.");
+                if (!readySession.SetSessionState(
+                        selectedMap,
+                        BuildCurrentModListJson(),
+                        cheatsEnabled)) {
+                    throw new InvalidOperationException("Failed to publish KoboldKare Basis session state.");
+                }
+            } catch (Exception exception) {
+                failure = exception;
             }
-        } catch (Exception exception) {
-            Debug.LogError($"Failed to host KoboldKare Basis match: {exception}");
+        }
+
+        if (failure != null) {
+            Debug.LogError($"Failed to host KoboldKare Basis match: {failure}");
             PopupHandler.instance?.SpawnPopup(
                 "Disconnect",
                 true,
                 default,
-                exception.GetBaseException().Message);
-        } finally {
-            if (popup != null) {
-                PopupHandler.instance?.ClearPopup(popup);
-            }
-            MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
+                failure.GetBaseException().Message);
         }
+        if (popup != null) {
+            PopupHandler.instance?.ClearPopup(popup);
+        }
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
     }
 
     public IEnumerator JoinBasisServer(string endpoint, string password = "") {
@@ -215,16 +233,29 @@ public class NetworkManager : SingletonScriptableObject<NetworkManager>, IPunOwn
         BasisSessionEventRelay.EnsureCreated();
         Popup popup = PopupHandler.instance?.SpawnPopup("Connect");
         MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
+        Exception failure = null;
+        KoboldKareConnectionOptions options = new KoboldKareConnectionOptions(
+            address,
+            port,
+            password ?? string.Empty,
+            ResolveDisplayName());
+        Task connectTask = null;
         try {
-            KoboldKareConnectionOptions options = new KoboldKareConnectionOptions(
-                address,
-                port,
-                password ?? string.Empty,
-                ResolveDisplayName());
-            Task connectTask = KoboldKareConnectionService.ConnectAsync(options);
-            yield return new WaitUntil(() => connectTask.IsCompleted);
-            ThrowIfTaskFailed(connectTask, "Basis server connection failed.");
+            connectTask = KoboldKareConnectionService.ConnectAsync(options);
+        } catch (Exception exception) {
+            failure = exception;
+        }
 
+        if (failure == null) {
+            yield return new WaitUntil(() => connectTask.IsCompleted);
+            try {
+                ThrowIfTaskFailed(connectTask, "Basis server connection failed.");
+            } catch (Exception exception) {
+                failure = exception;
+            }
+        }
+
+        if (failure == null) {
             float deadline = Time.realtimeSinceStartup + 10f;
             yield return new WaitUntil(() =>
                 (KoboldKareSessionCoordinator.Instance != null &&
@@ -234,21 +265,22 @@ public class NetworkManager : SingletonScriptableObject<NetworkManager>, IPunOwn
 
             if (KoboldKareSessionCoordinator.Instance == null ||
                 !KoboldKareSessionCoordinator.Instance.HasState) {
-                throw new TimeoutException("The Basis server did not provide KoboldKare session state.");
+                failure = new TimeoutException("The Basis server did not provide KoboldKare session state.");
             }
-        } catch (Exception exception) {
-            Debug.LogError($"Failed to join KoboldKare Basis server '{endpoint}': {exception}");
+        }
+
+        if (failure != null) {
+            Debug.LogError($"Failed to join KoboldKare Basis server '{endpoint}': {failure}");
             PopupHandler.instance?.SpawnPopup(
                 "Disconnect",
                 true,
                 default,
-                exception.GetBaseException().Message);
-        } finally {
-            if (popup != null) {
-                PopupHandler.instance?.ClearPopup(popup);
-            }
-            MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
+                failure.GetBaseException().Message);
         }
+        if (popup != null) {
+            PopupHandler.instance?.ClearPopup(popup);
+        }
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
     }
 
     public void StartSinglePlayer() {

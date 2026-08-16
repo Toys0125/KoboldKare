@@ -11,17 +11,17 @@ namespace UPersian.Scripts
 
         void OnEnable()
         {
-            EditorApplication.hierarchyWindowItemOnGUI += HierarchyWindowCallback;
+            EditorApplication.hierarchyWindowItemByEntityIdOnGUI += HierarchyWindowCallback;
         }
 
         void OnDisable()
         {
-            EditorApplication.hierarchyWindowItemOnGUI -= HierarchyWindowCallback;
+            EditorApplication.hierarchyWindowItemByEntityIdOnGUI -= HierarchyWindowCallback;
         }
 
-        public static void HierarchyWindowCallback(int instanceID, Rect selectionRect)
+        public static void HierarchyWindowCallback(EntityId entityId, Rect selectionRect)
         {
-            var go = (GameObject)EditorUtility.InstanceIDToObject(instanceID);
+            var go = (GameObject)EditorUtility.EntityIdToObject(entityId);
             if (go == null || go.GetComponent<EGG>() == null) return;
             float offX = 0;
             if (EGGLogo == null)

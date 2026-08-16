@@ -4,6 +4,14 @@ using Photon.Realtime;
 
 namespace Photon.Pun
 {
+    public static class PhotonGameObjectExtensions
+    {
+        public static PhotonView GetPhotonView(this UnityEngine.GameObject gameObject)
+        {
+            return gameObject == null ? null : gameObject.GetComponent<PhotonView>();
+        }
+    }
+
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = true)]
     public sealed class PunRPC : Attribute
     {

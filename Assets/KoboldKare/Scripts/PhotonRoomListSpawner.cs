@@ -29,13 +29,13 @@ public sealed class PhotonRoomListSpawner : MonoBehaviour {
     }
 
     private void OnEnable() {
-        BasisServerBrowserRefresh.RefreshRequested += RequestImmediateRefresh;
+        BasisServerBrowserRefresh.Requested += RequestImmediateRefresh;
         refreshCancellation = new CancellationTokenSource();
         refreshRoutine = StartCoroutine(RefreshLoop());
     }
 
     private void OnDisable() {
-        BasisServerBrowserRefresh.RefreshRequested -= RequestImmediateRefresh;
+        BasisServerBrowserRefresh.Requested -= RequestImmediateRefresh;
         refreshCancellation?.Cancel();
         refreshCancellation?.Dispose();
         refreshCancellation = null;

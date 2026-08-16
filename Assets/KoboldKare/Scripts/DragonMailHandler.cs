@@ -72,7 +72,7 @@ public class DragonMailHandler : MonoBehaviour, IPunObservable{
     }
 
     void TurnOff(GameObject go){
-        Debug.Log("turned off"+go.name+" with GUID "+go.GetInstanceID().ToString());
+        Debug.Log("turned off"+go.name+" with GUID "+go.GetEntityId().ToString());
         go.GetComponent<Animator>().SetBool("Open", false);
         go.GetComponent<CanvasGroup>().interactable = false;
         go.GetComponent<CanvasGroup>().blocksRaycasts = false;
@@ -80,7 +80,7 @@ public class DragonMailHandler : MonoBehaviour, IPunObservable{
 
     void TurnOn(GameObject go){
         TurnOffAll();
-        Debug.Log("turning on"+go.name+" with GUID "+go.GetInstanceID().ToString());
+        Debug.Log("turning on"+go.name+" with GUID "+go.GetEntityId().ToString());
         go.GetComponent<Animator>().SetBool("Open", true);
         go.GetComponent<CanvasGroup>().interactable = true;
         go.GetComponent<CanvasGroup>().blocksRaycasts = true;
