@@ -8,5 +8,8 @@
         "Editor"
     ],
     "excludePlatforms": [],
-    "allowUnsafeCode": false
+    "allowUnsafeCode": false,
+    "defineConstraints": [
+        "KOBOLDKARE_LEGACY_PHOTON"
+    ]
 }
