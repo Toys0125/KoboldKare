@@ -3,8 +3,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using ExitGames.Client.Photon;
-using Photon.Realtime;
+using KoboldKare.Basis.Networking;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using SimpleJSON;
@@ -77,8 +76,95 @@ public static class SaveManager {
             //Debug.Log(String.Format("[SaveManager] :: Convering {0} to {1}.",name,name.Split('(')[0].Trim()));
             return name.Split('(')[0].Trim();
         }
-        
+
         return name;
+    }
+
+    private static void SaveObservable(Component observable, JSONNode node) {
+        if (observable is ISavable savable) {
+            savable.Save(node);
+            return;
+        }
+
+        if (observable is PhotonTransformView transformView) {
+            transformView.CaptureSaveState(out Vector3 position, out Quaternion rotation, out Vector3 scale);
+            if (transformView.m_SynchronizePosition) {
+                node["position.x"] = position.x;
+                node["position.y"] = position.y;
+                node["position.z"] = position.z;
+            }
+            if (transformView.m_SynchronizeRotation) {
+                node["rotation.x"] = rotation.x;
+                node["rotation.y"] = rotation.y;
+                node["rotation.z"] = rotation.z;
+                node["rotation.w"] = rotation.w;
+            }
+            if (transformView.m_SynchronizeScale) {
+                node["scale.x"] = scale.x;
+                node["scale.y"] = scale.y;
+                node["scale.z"] = scale.z;
+            }
+            return;
+        }
+
+        if (observable is PhotonRigidbodyView rigidbodyView) {
+            rigidbodyView.CaptureSaveState(
+                out Vector3 position,
+                out Quaternion rotation,
+                out Vector3 velocity,
+                out Vector3 angularVelocity);
+            node["position.x"] = position.x;
+            node["position.y"] = position.y;
+            node["position.z"] = position.z;
+            node["rotation.x"] = rotation.x;
+            node["rotation.y"] = rotation.y;
+            node["rotation.z"] = rotation.z;
+            node["rotation.w"] = rotation.w;
+            if (rigidbodyView.m_SynchronizeVelocity) {
+                node["velocity.x"] = velocity.x;
+                node["velocity.y"] = velocity.y;
+                node["velocity.z"] = velocity.z;
+            }
+            if (rigidbodyView.m_SynchronizeAngularVelocity) {
+                node["angularVelocity.x"] = angularVelocity.x;
+                node["angularVelocity.y"] = angularVelocity.y;
+                node["angularVelocity.z"] = angularVelocity.z;
+            }
+        }
+    }
+
+    private static void LoadObservable(Component observable, JSONNode node) {
+        if (observable is ISavable savable) {
+            savable.Load(node);
+            return;
+        }
+
+        if (observable is PhotonTransformView transformView) {
+            Vector3 position = new Vector3(node["position.x"], node["position.y"], node["position.z"]);
+            Quaternion rotation = new Quaternion(
+                node["rotation.x"],
+                node["rotation.y"],
+                node["rotation.z"],
+                node["rotation.w"]);
+            Vector3 scale = new Vector3(node["scale.x"], node["scale.y"], node["scale.z"]);
+            transformView.ApplySaveState(position, rotation, scale);
+            return;
+        }
+
+        if (observable is PhotonRigidbodyView rigidbodyView) {
+            Vector3 position = new Vector3(node["position.x"], node["position.y"], node["position.z"]);
+            Quaternion rotation = new Quaternion(
+                node["rotation.x"],
+                node["rotation.y"],
+                node["rotation.z"],
+                node["rotation.w"]);
+            Vector3 velocity = new Vector3(node["velocity.x"], node["velocity.y"], node["velocity.z"]);
+            Vector3 angularVelocity = new Vector3(
+                node["angularVelocity.x"],
+                node["angularVelocity.y"],
+                node["angularVelocity.z"]);
+            rigidbodyView.ApplySaveState(position, rotation, velocity, angularVelocity);
+        }
     }
 
     public static bool IsLoadable(string filename, out string lastError) {
@@ -98,7 +184,7 @@ public static class SaveManager {
             return false;
         }
 
-        if (node["version"] != PhotonNetwork.PhotonServerSettings.AppSettings.AppVersion) {
+        if (node["version"] != Application.version) {
             Debug.LogWarning("Loading old version of KoboldKare... Might not work correctly!");
         }
 
@@ -113,7 +199,7 @@ public static class SaveManager {
         string savePath = $"{saveDataPath}{filename}{saveExtension}";
         JSONNode rootNode = JSONNode.Parse("{}");
         rootNode["header"] = saveHeader;
-        rootNode["version"] = PhotonNetwork.PhotonServerSettings.AppSettings.AppVersion;
+        rootNode["version"] = Application.version;
         rootNode["mapName"] = SceneManager.GetActiveScene().name;
         foreach (var map in PlayableMapDatabase.GetPlayableMaps()) {
             if (map.GetSceneName() != SceneManager.GetActiveScene().name) continue;
@@ -129,7 +215,7 @@ public static class SaveManager {
             modList.Add(modNode);
         }
         rootNode["modList"] = modList;
-        
+
         int viewCount = 0;
         foreach (PhotonView view in PhotonNetwork.PhotonViewCollection) {
             if (view.name.Contains("DontSave")) {
@@ -141,8 +227,8 @@ public static class SaveManager {
         JSONArray savedObjects = new JSONArray();
         // We need to enable all our saved objects, they don't have proper viewids otherwise
         foreach(PhotonView view in Object.FindObjectsOfType<PhotonView>(true)) {
-            if (view.gameObject.activeInHierarchy || ((DefaultPool)PhotonNetwork.PrefabPool).ResourceCache.ContainsKey(
-                    PrefabifyGameObjectName(view.gameObject))) continue;
+            if (view.gameObject.activeInHierarchy ||
+                KoboldKareBasisNetwork.IsRegisteredPrefab(PrefabifyGameObjectName(view.gameObject))) continue;
             var gameObject = view.gameObject;
             Debug.LogError( $"Found a disabled static viewID {view.ViewID} {gameObject.name}, this is not allowed as it prevents unique id assignments!", gameObject);
             return;
@@ -155,9 +241,7 @@ public static class SaveManager {
             objectNode["viewID"] = view.ViewID;
             objectNode["name"] = PrefabifyGameObjectName(view.gameObject);
             foreach(var observable in view.ObservedComponents) {
-                if (observable is ISavable savable) {
-                    savable.Save(objectNode);
-                }
+                SaveObservable(observable, objectNode);
             }
             savedObjects.Add(objectNode);
         }
@@ -196,7 +280,7 @@ public static class SaveManager {
     }
     private static void CleanUpImmediate() {
         foreach(PhotonView view in Object.FindObjectsOfType<PhotonView>(true)) {
-            if(((DefaultPool)PhotonNetwork.PrefabPool).ResourceCache.ContainsKey(PrefabifyGameObjectName(view.gameObject))){
+            if (KoboldKareBasisNetwork.IsRegisteredPrefab(PrefabifyGameObjectName(view.gameObject))) {
                 PhotonNetwork.Destroy(view.gameObject);
             }
         }
@@ -209,8 +293,8 @@ public static class SaveManager {
             // Must wait for Photon to spawn the initial player.
             yield return new WaitUntil(()=>PlayerPossession.TryGetPlayerInstance(out var player));
             CleanUpImmediate();
-            // Gotta wait for photon to finally tick, no way to listen for that of course.
-            yield return new WaitForSecondsRealtime(2f);
+            // Let Unity finish Destroy callbacks before reusing legacy view IDs.
+            yield return null;
             JSONNode rootNode;
             using (FileStream file = new FileStream(filename, FileMode.Open, FileAccess.Read)) {
                 using StreamReader reader = new StreamReader(file);
@@ -223,7 +307,7 @@ public static class SaveManager {
 
             string fileVersion = rootNode["version"];
 
-            if (fileVersion != PhotonNetwork.PhotonServerSettings.AppSettings.AppVersion) {
+            if (fileVersion != Application.version) {
                 Debug.Log("Load save file with a different version, it might not load correctly...");
             }
 
@@ -233,14 +317,21 @@ public static class SaveManager {
                 int viewID = objectNode["viewID"];
                 string prefabName = objectNode["name"];
                 PhotonView view = PhotonNetwork.GetPhotonView(viewID);
-                if (!((DefaultPool)PhotonNetwork.PrefabPool).ResourceCache.ContainsKey(prefabName)) continue;
-                PhotonNetwork.RaiseEvent(NetworkManager.CustomInstantiationEvent, new object[] { prefabName, viewID },
-                    new RaiseEventOptions
-                        { Receivers = ReceiverGroup.Others, CachingOption = EventCaching.AddToRoomCache },
-                    new SendOptions { Reliability = true });
-                GameObject obj = PhotonNetwork.PrefabPool.Instantiate(prefabName, Vector3.zero, Quaternion.identity);
-                view = obj.GetComponent<PhotonView>();
-                view.ViewID = viewID;
+                if (!KoboldKareBasisNetwork.IsRegisteredPrefab(prefabName)) continue;
+                if (view != null) {
+                    PhotonNetwork.Destroy(view.gameObject);
+                }
+
+                GameObject obj = KoboldKareBasisNetwork.InstantiateWithLegacyViewId(
+                    prefabName,
+                    viewID,
+                    Vector3.zero,
+                    Quaternion.identity,
+                    Vector3.one);
+                if (obj == null) {
+                    Debug.LogError($"Failed to spawn saved Basis entity {viewID} with prefab {prefabName}.");
+                    continue;
+                }
                 obj.SetActive(true);
             }
 
@@ -268,9 +359,7 @@ public static class SaveManager {
                         descriptor.finishedLoading += (v) => {
                             try {
                                 foreach (Component observable in v.ObservedComponents) {
-                                    if (observable is ISavable savable) {
-                                        savable.Load(objectNode);
-                                    }
+                                    LoadObservable(observable, objectNode);
                                 }
                             } catch (Exception e) {
                                 Debug.LogError($"Failed to load observable on photonView {v.ViewID}, {prefabName}", v);
@@ -280,9 +369,7 @@ public static class SaveManager {
                         };
                     } else {
                         foreach (Component observable in view.ObservedComponents) {
-                            if (observable is ISavable savable) {
-                                savable.Load(objectNode);
-                            }
+                            LoadObservable(observable, objectNode);
                         }
                     }
                 } catch (Exception e) {
@@ -330,7 +417,7 @@ public static class SaveManager {
                     }
                 }
             }
-            
+
             // Backwards compatibility for old saves where Lilith and surf map were not mods.
             if (rootNode.HasKey("version") && int.TryParse(rootNode["version"], out int versionNum) && versionNum <= 66) {
                 modStubs.Add(new ModManager.ModStub("Lilith Kobold", new PublishedFileId_t(2931099929), ModManager.ModSource.Any, "Lilith"));
@@ -340,7 +427,7 @@ public static class SaveManager {
 
         yield return ModManager.SetLoadedMods(modStubs);
         Debug.Log("Successfully set loaded mods");
-        
+
         foreach (var map in PlayableMapDatabase.GetPlayableMaps()) {
             if (map.GetRepresentedByKey(mapKey) || map.GetRepresentedByKey(mapName)) {
                 Debug.Log("Set selected map");
@@ -355,7 +442,7 @@ public static class SaveManager {
             yield return NetworkManager.instance.SinglePlayerRoutine();
         }
         yield return LoadRoutine(filename);
-        
+
         MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
         Pauser.SetPaused(false);
     }

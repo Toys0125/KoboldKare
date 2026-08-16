@@ -1,30 +1,30 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using Photon.Pun;
-using Photon.Realtime;
+using Basis.Scripts.BasisSdk.Players;
 using UnityEngine;
 using UnityEngine.UI;
 
-public class DisableUntilNetworkReady : MonoBehaviourPunCallbacks {
+/// <summary>
+/// Keeps legacy multiplayer buttons disabled until the Basis local-player runtime is ready.
+/// Photon lobby callbacks are no longer part of KoboldKare's connection lifecycle.
+/// </summary>
+public class DisableUntilNetworkReady : MonoBehaviour {
     private Selectable selectable;
 
     private void Awake() {
         selectable = GetComponent<Selectable>();
     }
 
-    public override void OnEnable() {
-        base.OnEnable();
-        selectable.interactable = PhotonNetwork.IsConnected;
+    private void OnEnable() {
+        BasisLocalPlayer.OnLocalPlayerInitialized += Refresh;
+        Refresh();
     }
 
-    public override void OnJoinedLobby() {
-        base.OnJoinedLobby();
-        selectable.interactable = true;
+    private void OnDisable() {
+        BasisLocalPlayer.OnLocalPlayerInitialized -= Refresh;
     }
 
-    public override void OnLeftLobby() {
-        base.OnLeftLobby();
-        selectable.interactable = false;
+    private void Refresh() {
+        if (selectable != null) {
+            selectable.interactable = BasisLocalPlayer.PlayerReady;
+        }
     }
 }

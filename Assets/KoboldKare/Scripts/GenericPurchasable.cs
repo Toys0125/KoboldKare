@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using KoboldKare;
+using KoboldKare.Basis.Networking;
 using Photon.Pun;
 using SimpleJSON;
 using UnityEngine;
@@ -139,7 +140,10 @@ public class GenericPurchasable : GenericUsable, IPunObservable, ISavable {
             Destroy(display);
         }
         purchasablePhotonName = targetPurchasable;
-        var targetPrefab = ((DefaultPool)PhotonNetwork.PrefabPool).ResourceCache[targetPurchasable];
+        if (!KoboldKareBasisNetwork.TryGetRegisteredPrefab(targetPurchasable, out GameObject targetPrefab)) {
+            Debug.LogError($"Could not find Basis network prefab '{targetPurchasable}' for purchasable display.");
+            return;
+        }
         display = GenerateDisplay(targetPrefab, displayShader, transform);
         
         Bounds encapsulate = new Bounds(transform.position, Vector3.zero);

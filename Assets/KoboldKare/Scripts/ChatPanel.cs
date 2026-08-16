@@ -1,9 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using ExitGames.Client.Photon;
-using Photon.Pun;
-using Photon.Realtime;
 using Steamworks;
 using TMPro;
 using UnityEngine;
@@ -19,7 +16,7 @@ public class ChatPanel : MonoBehaviour {
     [SerializeField] private GameObject autocompleteContainer;
     [SerializeField] private RectTransform autocompleteContent;
     [SerializeField] private GameObject autocompleteTemplate;
-    
+
     void OnEnable() {
         GameManager.SetControlsActive(false);
 
@@ -129,7 +126,7 @@ public class ChatPanel : MonoBehaviour {
             trigger.triggers.Add(entry);
         }
     }
-    
+
     private void OnTextChanged(string t) {
         t = t.TrimStart();
 
@@ -186,11 +183,7 @@ public class ChatPanel : MonoBehaviour {
         chatInput.text="";
         chatScrollView.normalizedPosition = new Vector2(0, 0);
         if (!string.IsNullOrEmpty(t)) {
-            RaiseEventOptions options = new RaiseEventOptions() {
-                CachingOption = EventCaching.DoNotCache,
-                Receivers = ReceiverGroup.All,
-            };
-            PhotonNetwork.RaiseEvent(NetworkManager.CustomChatEvent, t.TrimEnd(), options, SendOptions.SendReliable);
+            NetworkManager.instance.SendChat(t.TrimEnd());
         }
         MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
     }

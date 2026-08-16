@@ -151,9 +151,6 @@ public class GameManager : MonoBehaviour {
             return;
         }
         ModManager.AddFinishedLoadingListener(ReloadMapIfInEditor);
-        // FIXME: Photon isn't initialized early enough for scriptable objects to add themselves as a callback...
-        // So I do it here-- I guess!
-        PhotonNetwork.AddCallbackTarget(NetworkManager.instance);
         DontDestroyOnLoad(gameObject);
         SaveManager.Init();
         var control = GetPlayerControls();
@@ -200,8 +197,10 @@ public class GameManager : MonoBehaviour {
     }
 
     private IEnumerator QuitToMenuRoutine() {
-        PhotonNetwork.Disconnect();
         ObjectiveManager.GetCurrentObjective()?.Unregister();
+        if (NetworkManager.instance != null) {
+            yield return NetworkManager.instance.DisconnectForSceneChange();
+        }
         var handle = MapLoadingInterop.RequestMapLoad("MainMenu");
         yield return new WaitUntil(()=>handle.IsDone);
         PhotonNetwork.OfflineMode = false;
@@ -236,16 +235,6 @@ public class GameManager : MonoBehaviour {
             return;
         }
         ModManager.RemoveFinishedLoadingListener(ReloadMapIfInEditor);
-        string targetString = NetworkManager.instance.settings.AppSettings.AppVersion;
-        if (Application.isEditor && targetString.EndsWith("Editor")) {
-            NetworkManager.instance.settings.AppSettings.AppVersion = targetString.Substring(0, targetString.Length - 6);
-        }
-        if (Application.isEditor && PhotonNetwork.GameVersion != null) {
-            targetString = PhotonNetwork.GameVersion;
-            if (targetString.EndsWith("Editor")) {
-                PhotonNetwork.GameVersion = targetString.Substring(0,targetString.Length-6);
-            }
-        }
     }
 
     public void PlayUISFX(ButtonMouseOver btn, ButtonMouseOver.EventType evtType) {

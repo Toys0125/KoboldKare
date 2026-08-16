@@ -201,9 +201,18 @@ public class Grabber : MonoBehaviourPun {
     
     [SerializeField]
     private Transform view;
+    private bool useViewTransformForAim;
 
-    public void SetView(Transform newView) {
+    public void SetView(Transform newView, bool useViewTransformForAim = false) {
         view = newView;
+        this.useViewTransformForAim = useViewTransformForAim;
+    }
+
+    private Quaternion GetAimRotation() {
+        if (useViewTransformForAim && view != null) {
+            return view.rotation;
+        }
+        return OrbitCamera.GetPlayerIntendedRotation();
     }
 
     public void OnDestroy() {
@@ -344,6 +353,9 @@ public class Grabber : MonoBehaviourPun {
     }
 
     private Vector3 GetViewPos() {
+        if (useViewTransformForAim && view != null) {
+            return view.position;
+        }
         if (PlayerPossession.TryGetPlayerInstance(out var poss) && poss.kobold == player) {
             var desiredViewDistance = 1f;
             if (poss.TryGetComponent<CameraSwitcher>(out var cameraSwitcher)) {
@@ -375,9 +387,10 @@ public class Grabber : MonoBehaviourPun {
             return;
         }
 
-        var position = GetViewPos()+OrbitCamera.GetPlayerIntendedRotation()*defaultOffset;
+        Quaternion aimRotation = GetAimRotation();
+        var position = GetViewPos()+aimRotation*defaultOffset;
         int hits = Physics.OverlapSphereNonAlloc(position, 1f, colliders);
-        sorter.SetRay(new Ray(position, OrbitCamera.GetPlayerIntendedRotation()*Vector3.forward));
+        sorter.SetRay(new Ray(position, aimRotation*Vector3.forward));
         System.Array.Sort(colliders, 0, hits, sorter);
         for (int i = 0; i < hits; i++) {
             IGrabbable grabbable = colliders[i].GetComponentInParent<IGrabbable>();
@@ -398,7 +411,7 @@ public class Grabber : MonoBehaviourPun {
 
             if (grabbable.CanGrab(player)) {
                 grabbable.photonView.RPC(nameof(IGrabbable.OnGrabRPC), RpcTarget.All, photonView.ViewID);
-                GrabInfo info = new GrabInfo(player, grabbable, springStrength, dampingStrength, GetViewPos(),OrbitCamera.GetPlayerIntendedRotation(), defaultOffset);
+                GrabInfo info = new GrabInfo(player, grabbable, springStrength, dampingStrength, GetViewPos(), aimRotation, defaultOffset);
                 // Destroyed on grab, creatures gib on grab.
                 if (!info.Valid()) {
                     return;

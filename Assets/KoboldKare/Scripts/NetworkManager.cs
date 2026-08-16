@@ -1,77 +1,108 @@
-﻿using System.Collections;
+using System;
+using System.Collections;
 using System.Collections.Generic;
-using UnityEngine;
+using System.Threading.Tasks;
+using KoboldKare.Basis.Networking;
+using NetStack.Serialization;
 using Photon.Pun;
 using Photon.Realtime;
-using ExitGames.Client.Photon;
-using Hashtable = ExitGames.Client.Photon.Hashtable;
-using UnityEngine.SceneManagement;
-using NetStack.Serialization;
 using SimpleJSON;
 using Steamworks;
-using UnityEngine.InputSystem;
+using UnityEngine;
+using UnityEngine.SceneManagement;
 
 [CreateAssetMenu(fileName = "NewNetworkManager", menuName = "Data/NetworkManager", order = 1)]
-public class NetworkManager : SingletonScriptableObject<NetworkManager>, IConnectionCallbacks, IMatchmakingCallbacks, IInRoomCallbacks, ILobbyCallbacks, IWebRpcCallback, IErrorInfoCallback, IPunOwnershipCallbacks, IOnEventCallback {
+public class NetworkManager : SingletonScriptableObject<NetworkManager>, IPunOwnershipCallbacks {
     private string selectedMap;
     public PrefabSelectSingleSetting selectedPlayerPrefab;
-    public ServerSettings settings;
-    
-    public static byte CustomInstantiationEvent = (byte)'C';
-    public static byte CustomCheatEvent = (byte)'H';
-    public static byte CustomChatEvent = (byte)'A';
 
-    public bool online {
-        get {
-            return PhotonNetwork.OfflineMode != true && PhotonNetwork.PlayerList.Length > 1;
-        }
-    }
-    public bool offline {
-        get {
-            return !online;
-        }
+    private bool cheatsEnabled;
+    private bool basisSessionTransitionRunning;
+    private uint appliedBasisSessionRevision;
+
+    public bool online => !PhotonNetwork.OfflineMode &&
+                          Basis.Scripts.Networking.BasisNetworkConnection.LocalPlayerIsConnected;
+    public bool offline => !online;
+
+    public void JoinLobby(string ignoredRegion) {
+        // Existing menu events still call this method. Basis directories expose endpoints rather
+        // than Photon regions/lobbies, so opening multiplayer simply refreshes the server browser.
+        BasisServerBrowserRefresh.RequestRefresh();
     }
 
-    private delegate void GenericAction();
-
-    private IEnumerator JoinLobbyRoutine(string region) {
-        if (PhotonNetwork.InRoom) {
-            PhotonNetwork.LeaveRoom();
-        }
-        if (PhotonNetwork.InLobby) {
-            PhotonNetwork.LeaveLobby();
-        }
-
-        PhotonNetwork.Disconnect();
-        yield return new WaitUntil(()=>!PhotonNetwork.IsConnected);
-        settings.AppSettings.FixedRegion = region;
-        yield return GameManager.instance.StartCoroutine(EnsureOnlineAndReadyToLoad());
+    public void LeaveLobby() {
+        // Kept for serialized UI compatibility. There is no Basis lobby connection to leave.
     }
-    public void JoinLobby(string region) {
-        GameManager.instance.StartCoroutine(JoinLobbyRoutine(region));
-    }
+
     public void QuickMatch() {
-        GameManager.instance.StartCoroutine(QuickMatchRoutine());
+        if (GameManager.instance != null) {
+            GameManager.instance.StartCoroutine(QuickMatchRoutine());
+        }
     }
-    public IEnumerator QuickMatchRoutine() {
-        PopupHandler.instance.SpawnPopup("Connect");
-        yield return GameManager.instance.StartCoroutine(EnsureOnlineAndReadyToLoad());
-        PhotonNetwork.JoinRandomRoom();
-    }
-    private bool TryParseMods(Hashtable hashtable, out List<ModManager.ModStub> stubs) {
-        if (hashtable.ContainsKey("modList")) {
-            if (hashtable["modList"] is not string) {
-                stubs = new();
-                return false;
-            }
 
-            string modList = (string)hashtable["modList"];
-            JSONNode modArray = JSONNode.Parse(modList);
+    private IEnumerator QuickMatchRoutine() {
+        Popup popup = PopupHandler.instance?.SpawnPopup("Connect");
+        Task<IReadOnlyList<KoboldKareServerEntry>> queryTask = KoboldKareServerDirectory.QueryAsync();
+        yield return new WaitUntil(() => queryTask.IsCompleted);
+
+        if (popup != null) {
+            PopupHandler.instance?.ClearPopup(popup);
+        }
+
+        if (queryTask.IsFaulted) {
+            string message = queryTask.Exception?.GetBaseException().Message ?? "Basis server discovery failed.";
+            PopupHandler.instance?.SpawnPopup("Disconnect", true, default, message);
+            yield break;
+        }
+        if (queryTask.IsCanceled || queryTask.Result.Count == 0) {
+            PopupHandler.instance?.SpawnPopup(
+                "Disconnect",
+                true,
+                default,
+                "No KoboldKare Basis servers are currently available.");
+            yield break;
+        }
+
+        KoboldKareServerEntry server = queryTask.Result[0];
+        yield return JoinBasisServer(server.Endpoint);
+    }
+
+    public void SetSelectedMap(string mapName) {
+        selectedMap = mapName;
+    }
+
+    public string GetSelectedMap() {
+        return selectedMap;
+    }
+
+    public string GetApplicationVersion() {
+        string version = Application.version;
+        if (ModManager.GetModsWithLoadedAssets().Count != 0) {
+            version += "modded";
+        }
+        return version;
+    }
+
+    public string BuildCurrentModListJson() {
+        JSONArray modArray = new JSONArray();
+        foreach (var mod in ModManager.GetModsWithLoadedAssets()) {
+            JSONNode modNode = JSONNode.Parse("{}");
+            modNode["title"] = mod.title;
+            modNode["folderTitle"] = mod.folderTitle;
+            modNode["id"] = mod.id.ToString();
+            modArray.Add(modNode);
+        }
+        return modArray.ToString();
+    }
+
+    private bool TryParseMods(string modList, out List<ModManager.ModStub> stubs) {
+        try {
+            JSONNode modArray = JSONNode.Parse(string.IsNullOrWhiteSpace(modList) ? "[]" : modList);
             List<ModManager.ModStub> modsToLoad = new List<ModManager.ModStub>();
             foreach (var pair in modArray) {
-                var node = pair.Value;
+                JSONNode node = pair.Value;
                 if (!node.HasKey("id") || !node.HasKey("folderTitle") || !node.HasKey("title")) {
-                    stubs = new();
+                    stubs = new List<ModManager.ModStub>();
                     return false;
                 }
 
@@ -79,311 +110,279 @@ public class NetworkManager : SingletonScriptableObject<NetworkManager>, IConnec
                     continue;
                 }
 
-                modsToLoad.Add(new ModManager.ModStub((string)node["title"], (PublishedFileId_t)parsedID,
-                    ModManager.ModSource.Any, node["folderTitle"]));
+                modsToLoad.Add(new ModManager.ModStub(
+                    (string)node["title"],
+                    new PublishedFileId_t(parsedID),
+                    ModManager.ModSource.Any,
+                    node["folderTitle"]));
             }
             stubs = modsToLoad;
             return true;
-        }
-
-        stubs = new();
-        return false;
-    } 
-    public void JoinMatch(RoomInfo roomInfo) {
-        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
-        if (TryParseMods(roomInfo.CustomProperties, out var stubs)) {
-            GameManager.StartCoroutineStatic(JoinMatchRoutine(roomInfo.Name, stubs));
-        } else {
-            PhotonNetwork.JoinRoom(roomInfo.Name);
-        }
-    }
-    private IEnumerator JoinMatchRoutine(string roomName, List<ModManager.ModStub> modsToLoad) {
-        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
-        PopupHandler.instance.SpawnPopup("Connect");
-        try {
-            MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
-            Debug.Log("Loading mods first...");
-            yield return GameManager.instance.StartCoroutine(ModManager.SetLoadedMods(modsToLoad));
-        } finally {
-            if (ModManager.GetFailedToLoadMods()) {
-                MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.MainMenu);
-                PopupHandler.instance.ClearAllPopups();
-                PopupHandler.instance.SpawnPopup("Disconnect", true, default,
-                    "Failed to download mods set by the server.");
-            }
-        }
-
-        if (!ModManager.GetFailedToLoadMods()) {
-            yield return EnsureOnlineAndReadyToLoad();
-            PhotonNetwork.JoinRoom(roomName);
+        } catch (Exception exception) {
+            Debug.LogError($"Failed to parse KoboldKare Basis mod list: {exception}");
+            stubs = new List<ModManager.ModStub>();
+            return false;
         }
     }
 
-    private IEnumerator PhotonDisconnectCompletely() {
-        if (PhotonNetwork.InRoom) {
-            PhotonNetwork.LeaveRoom();
+    public IEnumerator HostBasisMatch(
+        string serverName,
+        int maxPlayers,
+        bool privateRoom,
+        string password = "") {
+        if (string.IsNullOrWhiteSpace(selectedMap)) {
+            PopupHandler.instance?.SpawnPopup(
+                "Disconnect",
+                true,
+                default,
+                "No KoboldKare map is selected for the Basis server.");
+            yield break;
         }
-        if (PhotonNetwork.InLobby) {
-            PhotonNetwork.LeaveLobby();
-        }
-        if (PhotonNetwork.IsConnected) {
-            PhotonNetwork.Disconnect();
-        }
-        yield return new WaitUntil(() => PhotonNetwork.NetworkClientState != ClientState.Leaving && !PhotonNetwork.IsConnected);
-    }
 
-    private IEnumerator EnsureOfflineAndReadyToLoad() {
-        /*if (Application.isEditor && !settings.AppSettings.AppVersion.Contains("Editor")) {
-            settings.AppSettings.AppVersion += "Editor";
-        }
-        if (Application.isEditor && PhotonNetwork.GameVersion != null && !PhotonNetwork.GameVersion.Contains("Editor")) {
-            PhotonNetwork.GameVersion += "Editor";
-        }*/
-        PhotonNetwork.AutomaticallySyncScene = true;
-        PhotonPeer.RegisterType(typeof(BitBuffer), (byte)'B', BufferPool.SerializeBitBuffer, BufferPool.DeserializeBitBuffer);
-        if (PhotonNetwork.InRoom) {
-            PhotonNetwork.LeaveRoom();
-        }
-        if (PhotonNetwork.InLobby) {
-            PhotonNetwork.LeaveLobby();
-        }
-        PhotonNetwork.Disconnect();
-        yield return new WaitUntil(() => !PhotonNetwork.IsConnected);
-        PhotonNetwork.OfflineMode = true;
-        PhotonNetwork.EnableCloseConnection = true;
-    }
-    public IEnumerator EnsureOnlineAndReadyToLoad(bool shouldLeaveRoom = true) {
-        /*if (Application.isEditor && !settings.AppSettings.AppVersion.Contains("Editor")) {
-            settings.AppSettings.AppVersion += "Editor";
-        }
-        if (Application.isEditor && PhotonNetwork.GameVersion != null && !PhotonNetwork.GameVersion.Contains("Editor")) {
-            PhotonNetwork.GameVersion += "Editor";
-        }*/
-        Debug.Log("Leaving room...");
-        if (PhotonNetwork.InRoom && shouldLeaveRoom) {
-            PhotonNetwork.LeaveRoom();
-            var boxedSceneLoad = MapLoadingInterop.RequestMapLoad("ErrorScene");
-            yield return new WaitUntil(()=>boxedSceneLoad.IsDone);
-        }
-        Debug.Log("left room!");
-
-        PhotonNetwork.AutomaticallySyncScene = true;
+        yield return PrepareForBasisConnectionSwitch();
         PhotonNetwork.OfflineMode = false;
-        PhotonPeer.RegisterType(typeof(BitBuffer), (byte)'B', BufferPool.SerializeBitBuffer, BufferPool.DeserializeBitBuffer);
-        Debug.Log("Connecting...");
-        if (!PhotonNetwork.IsConnected) {
-            PhotonNetwork.ConnectUsingSettings();
-        }
-        
-        yield return new WaitUntil(() => PhotonNetwork.IsConnectedAndReady);
-        
-        if (!PhotonNetwork.InLobby) {
-            PhotonNetwork.JoinLobby();
-        }
-        
-        yield return new WaitUntil(()=>PhotonNetwork.NetworkClientState == ClientState.JoinedLobby);
+        BasisSessionEventRelay.EnsureCreated();
+        Popup popup = PopupHandler.instance?.SpawnPopup("Connect");
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
 
-        PhotonNetwork.EnableCloseConnection = true;
+        try {
+            KoboldKareConnectionOptions options = new KoboldKareConnectionOptions(
+                "localhost",
+                KoboldKareConnectionService.DefaultPort,
+                password ?? string.Empty,
+                ResolveDisplayName(),
+                true,
+                string.IsNullOrWhiteSpace(serverName) ? "KoboldKare" : serverName.Trim(),
+                Mathf.Clamp(maxPlayers, 1, ushort.MaxValue));
+
+            Task connectTask = KoboldKareConnectionService.ConnectAsync(options);
+            yield return new WaitUntil(() => connectTask.IsCompleted);
+            ThrowIfTaskFailed(connectTask, "Basis server connection failed.");
+
+            float deadline = Time.realtimeSinceStartup + 10f;
+            yield return new WaitUntil(() => {
+                KoboldKareNetworkWorld world = KoboldKareNetworkWorld.Instance;
+                KoboldKareSessionCoordinator session = KoboldKareSessionCoordinator.Instance;
+                return (world != null && session != null &&
+                        world.HasNetworkID && world.IsWorldAuthority && session.HasNetworkID) ||
+                       Time.realtimeSinceStartup >= deadline;
+            });
+
+            KoboldKareNetworkWorld readyWorld = KoboldKareNetworkWorld.Instance;
+            KoboldKareSessionCoordinator readySession = KoboldKareSessionCoordinator.Instance;
+            if (readyWorld == null || readySession == null ||
+                !readyWorld.HasNetworkID || !readyWorld.IsWorldAuthority || !readySession.HasNetworkID) {
+                throw new TimeoutException("KoboldKare Basis session objects did not become network-ready.");
+            }
+
+            // Directory publication/private visibility is a server-directory concern, not gameplay
+            // authority state. Keep the UI option accepted while provider-side publication is wired.
+            _ = privateRoom;
+
+            if (!readySession.SetSessionState(
+                    selectedMap,
+                    BuildCurrentModListJson(),
+                    cheatsEnabled)) {
+                throw new InvalidOperationException("Failed to publish KoboldKare Basis session state.");
+            }
+        } catch (Exception exception) {
+            Debug.LogError($"Failed to host KoboldKare Basis match: {exception}");
+            PopupHandler.instance?.SpawnPopup(
+                "Disconnect",
+                true,
+                default,
+                exception.GetBaseException().Message);
+        } finally {
+            if (popup != null) {
+                PopupHandler.instance?.ClearPopup(popup);
+            }
+            MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
+        }
     }
 
-    public void SetSelectedMap(string mapName) {
-        selectedMap = mapName;
-    }
-    public string GetSelectedMap() {
-        return selectedMap;
+    public IEnumerator JoinBasisServer(string endpoint, string password = "") {
+        if (!TryParseBasisEndpoint(endpoint, out string address, out ushort port)) {
+            PopupHandler.instance?.SpawnPopup(
+                "Disconnect",
+                true,
+                default,
+                $"Invalid Basis server endpoint: {endpoint}");
+            yield break;
+        }
+
+        yield return PrepareForBasisConnectionSwitch();
+        PhotonNetwork.OfflineMode = false;
+        BasisSessionEventRelay.EnsureCreated();
+        Popup popup = PopupHandler.instance?.SpawnPopup("Connect");
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
+        try {
+            KoboldKareConnectionOptions options = new KoboldKareConnectionOptions(
+                address,
+                port,
+                password ?? string.Empty,
+                ResolveDisplayName());
+            Task connectTask = KoboldKareConnectionService.ConnectAsync(options);
+            yield return new WaitUntil(() => connectTask.IsCompleted);
+            ThrowIfTaskFailed(connectTask, "Basis server connection failed.");
+
+            float deadline = Time.realtimeSinceStartup + 10f;
+            yield return new WaitUntil(() =>
+                (KoboldKareSessionCoordinator.Instance != null &&
+                 KoboldKareSessionCoordinator.Instance.HasNetworkID &&
+                 KoboldKareSessionCoordinator.Instance.HasState) ||
+                Time.realtimeSinceStartup >= deadline);
+
+            if (KoboldKareSessionCoordinator.Instance == null ||
+                !KoboldKareSessionCoordinator.Instance.HasState) {
+                throw new TimeoutException("The Basis server did not provide KoboldKare session state.");
+            }
+        } catch (Exception exception) {
+            Debug.LogError($"Failed to join KoboldKare Basis server '{endpoint}': {exception}");
+            PopupHandler.instance?.SpawnPopup(
+                "Disconnect",
+                true,
+                default,
+                exception.GetBaseException().Message);
+        } finally {
+            if (popup != null) {
+                PopupHandler.instance?.ClearPopup(popup);
+            }
+            MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
+        }
     }
 
     public void StartSinglePlayer() {
-        GameManager.instance.StartCoroutine(SinglePlayerRoutine());
-    }
-    public IEnumerator SinglePlayerRoutine() {
-        yield return GameManager.instance.StartCoroutine(EnsureOfflineAndReadyToLoad());
-        var boxedSceneLoad = MapLoadingInterop.RequestMapLoad(selectedMap);
-        yield return new WaitUntil(()=>boxedSceneLoad.IsDone);
-        PhotonNetwork.OfflineMode = true;
-        PhotonNetwork.JoinRandomRoom();
-    }
-
-    public void LeaveLobby() {
-        if (PhotonNetwork.InLobby) {
-            PhotonNetwork.LeaveLobby();
-        }
-    }
-    public void OnConnectedToMaster() {
-        Debug.Log("OnConnectedToMaster() was called by PUN.");
-        Debug.Log("Using version " + PhotonNetwork.NetworkingClient.AppVersion);
-    }
-    public void OnDisconnected(DisconnectCause cause) {
-        Debug.LogWarningFormat("PUN Basics Tutorial/Launcher: OnDisconnected() was called by PUN with reason {0}", cause);
         if (GameManager.instance != null) {
-            GameManager.instance.StartCoroutine(OnDisconnectRoutine(cause));
+            GameManager.instance.StartCoroutine(SinglePlayerRoutine());
         }
     }
 
-    private IEnumerator OnDisconnectRoutine(DisconnectCause cause) {
-        if (cause == DisconnectCause.DisconnectByClientLogic || cause == DisconnectCause.None) yield break;
-        PopupHandler.instance.ClearAllPopups();
-        var handle = MapLoadingInterop.RequestMapLoad("MainMenu");
-        yield return new WaitUntil(() => handle.IsDone);
-        PopupHandler.instance.SpawnPopup("Disconnect", true, default, cause.ToString());
+    public IEnumerator SinglePlayerRoutine() {
+        yield return PrepareForBasisConnectionSwitch();
+        PhotonNetwork.OfflineMode = true;
+        BasisSessionEventRelay.EnsureCreated();
+
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
+        if (!string.IsNullOrWhiteSpace(selectedMap) && SceneManager.GetActiveScene().name != selectedMap) {
+            var mapHandle = MapLoadingInterop.RequestMapLoad(selectedMap);
+            yield return new WaitUntil(() => mapHandle.IsDone);
+        }
+
+        PopupHandler.instance?.ClearAllPopups();
+        SpawnControllablePlayer();
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
     }
 
-    private IEnumerator OnJoinRoomFailedRoutine(short returnCode, string message) {
-        yield return GameManager.instance.StartCoroutine(EnsureOnlineAndReadyToLoad());
-        PopupHandler.instance.ClearAllPopups();
-        var handle = MapLoadingInterop.RequestMapLoad("MainMenu");
-        yield return new WaitUntil(() => handle.IsDone);
-        PopupHandler.instance.SpawnPopup("Disconnect", true, default, "Error " + returnCode + ": " + message);
-    }
-
-    public void TriggerDisconnect() {
-        OnDisconnected(DisconnectCause.DisconnectByDisconnectMessage);
-    }
-
-    public void OnJoinRoomFailed(short returnCode, string message) {
-        Debug.Log("PUN Basics Tutorial/Launcher:OnJoinRoomFailed() was called by PUN." + message);
-        GameManager.instance.StartCoroutine(OnJoinRoomFailedRoutine(returnCode, message));
-        //GameManager.instance.LoadLevel("ErrorScene");
-        //PhotonNetwork.CreateRoom("asdfasdfasdfasdfasdfasdf", new RoomOptions{MaxPlayers = maxPlayersPerRoom});
-        //PhotonNetwork.CreateRoom(null, new RoomOptions{MaxPlayers = maxPlayers});
-    }
-    public void OnJoinRandomFailed(short returnCode, string message) {
-    }
     public IEnumerator SpawnControllablePlayerRoutine() {
-        yield return new WaitUntil(() => Mathf.Approximately(PhotonNetwork.LevelLoadingProgress, 1f) && ModManager.GetFinishedLoading());
-        if (PhotonNetwork.NetworkClientState != ClientState.Joined) {
+        yield return new WaitUntil(ModManager.GetFinishedLoading);
+
+        if (!PhotonNetwork.OfflineMode) {
+            float deadline = Time.realtimeSinceStartup + 10f;
+            yield return new WaitUntil(() => {
+                KoboldKareNetworkWorld world = KoboldKareNetworkWorld.Instance;
+                return (Basis.Scripts.Networking.BasisNetworkConnection.LocalPlayerIsConnected &&
+                        world != null && world.HasNetworkID) ||
+                       Time.realtimeSinceStartup >= deadline;
+            });
+
+            if (!Basis.Scripts.Networking.BasisNetworkConnection.LocalPlayerIsConnected ||
+                KoboldKareNetworkWorld.Instance == null ||
+                !KoboldKareNetworkWorld.Instance.HasNetworkID) {
+                Debug.LogError("Cannot spawn the controllable Kobold because the Basis session is not network-ready.");
+                yield break;
+            }
+        }
+
+        if (PhotonNetwork.LocalPlayer.TagObject is Kobold) {
             yield break;
         }
-        // If our kobold exists, don't spawn another
-        if (PhotonNetwork.LocalPlayer.TagObject != null && (PhotonNetwork.LocalPlayer.TagObject as Kobold) != null) {
-            yield break;
-        }
-        
-        
+
         BitBuffer playerData = new BitBuffer(16);
         playerData.AddKoboldGenes(PlayerKoboldLoader.GetPlayerGenes());
-        playerData.AddBool(true);// Is player kobold
+        playerData.AddBool(true);
 
-        SceneDescriptor.GetSpawnLocationAndRotation(out Vector3 pos, out Quaternion rot);
-        Debug.Log($"Spawned player at {pos}");
-        GameObject player = PhotonNetwork.Instantiate(selectedPlayerPrefab.GetPrefab(), pos, Quaternion.identity, 0, new object[]{playerData});
-        player.GetComponentInChildren<CharacterDescriptor>(true).SetEyeDir(rot*Vector3.forward);
-        PopupHandler.instance.ClearAllPopups();
+        SceneDescriptor.GetSpawnLocationAndRotation(out Vector3 position, out Quaternion rotation);
+        Debug.Log($"Spawned player at {position}");
+        GameObject player = PhotonNetwork.Instantiate(
+            selectedPlayerPrefab.GetPrefab(),
+            position,
+            Quaternion.identity,
+            0,
+            new object[] { playerData });
+        if (player == null) {
+            Debug.LogError("Basis-backed player instantiation failed.");
+            yield break;
+        }
+
+        CharacterDescriptor descriptor = player.GetComponentInChildren<CharacterDescriptor>(true);
+        if (descriptor != null) {
+            descriptor.SetEyeDir(rotation * Vector3.forward);
+        }
+        PopupHandler.instance?.ClearAllPopups();
         MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.None);
         Pauser.SetPaused(false);
     }
+
     public void SpawnControllablePlayer() {
-        GameManager.instance.StartCoroutine(SpawnControllablePlayerRoutine());
-    }
-    void IMatchmakingCallbacks.OnJoinedRoom() {
-        Debug.Log("PUN Basics Tutorial/Launcher: OnJoinedRoom() called by PUN. Now this client is in a room.");
-        GameManager.StartCoroutineStatic(HandleModListChange(PhotonNetwork.CurrentRoom.CustomProperties));
-        SpawnControllablePlayer();
-    }
-    
-    public void OnPlayerEnteredRoom(Player other) {
-        Debug.LogFormat("OnPlayerEnteredRoom() {0}", other.NickName); // not seen if you're the player connecting
-        CheatsProcessor.AppendText($"{other.NickName}<color=yellow> has joined the room.</color>\n");
-    }
-
-    public void OnPlayerLeftRoom(Player other) {
-        Debug.LogFormat("OnPlayerLeftRoom() {0}", other.NickName); // seen when other disconnects
-        if (PhotonNetwork.IsMasterClient) {
-            Debug.LogFormat("OnPlayerLeftRoom IsMasterClient {0}", PhotonNetwork.IsMasterClient); // called before OnPlayerLeftRoom
-        }
-        CheatsProcessor.AppendText($"{other.NickName}<color=yellow> has left the room.</color>\n");
-    }
-    public void OnConnected() {
-        Debug.Log("Connected.");
-    }
-
-    public void OnCreatedRoom() {
-        cheatsEnabled = false;
-        //GameManager.instance.StartCoroutine(WaitForLevelToLoadThenSetModOptions());
-    }
-
-
-    public void OnLeftRoom() {
-        Debug.Log("Left room");
-    }
-    public void OnMasterClientSwitched(Player newMasterClient) {
-        CheatsProcessor.AppendText($"<color=yellow>Host migrated to {newMasterClient.NickName}</color>\n");
-        Debug.Log("Master switched!" + newMasterClient);
-        //GameManager.instance.StartCoroutine(WaitForLevelToLoadThenSetModOptions());
-    }
-
-    public void OnJoinedLobby() {
-        Debug.Log("Joined lobby");
-    }
-
-    public void OnLeftLobby() {
-        Debug.Log("Left lobby i guess");
-    }
-
-    public void OnRegionListReceived(RegionHandler regionHandler) {
-    }
-
-    public void OnRoomListUpdate(List<RoomInfo> roomList) {
-        foreach (RoomInfo i in roomList) {
-            Debug.Log("Got room info list:" + i);
+        if (GameManager.instance != null) {
+            GameManager.instance.StartCoroutine(SpawnControllablePlayerRoutine());
         }
     }
-    public void OnFriendListUpdate(List<FriendInfo> friendList) {
-        Debug.Log("Friends update:" + friendList);
+
+    public void TriggerDisconnect() {
+        if (GameManager.instance != null) {
+            GameManager.instance.StartCoroutine(DisconnectBasisRoutine());
+        }
     }
 
-    public void OnCustomAuthenticationResponse(Dictionary<string, object> data) {
-        Debug.Log("Custom auth i guess" + data);
-    }
+    public IEnumerator DisconnectForSceneChange() {
+        PhotonNetwork.OfflineMode = false;
+        bool hasBasisRuntime =
+            Basis.Scripts.Networking.BasisNetworkManagement.IsInitialized ||
+            Basis.Scripts.Networking.BasisNetworkConnection.LocalPlayerPeer != null;
 
-    public void OnCustomAuthenticationFailed(string debugMessage) {
-        Debug.Log("Custom auth failed" + debugMessage);
-    }
+        if (hasBasisRuntime && SceneManager.GetActiveScene().name != "ErrorScene") {
+            var unloadHandle = MapLoadingInterop.RequestMapLoad("ErrorScene");
+            yield return new WaitUntil(() => unloadHandle.IsDone);
+            yield return null;
+        }
 
-    public void OnLobbyStatisticsUpdate(List<TypedLobbyInfo> lobbyStatistics) {
-        Debug.Log("lobby update " + lobbyStatistics);
-    }
-
-    public void OnErrorInfo(ErrorInfo errorInfo) {
-        Debug.Log("Photon error: " + errorInfo);
-    }
-
-    public void OnCreateRoomFailed(short returnCode, string message) {
-    }
-
-    public void OnRoomPropertiesUpdate(Hashtable propertiesThatChanged) {
-        GameManager.StartCoroutineStatic(HandleModListChange(propertiesThatChanged));
-    }
-
-    IEnumerator HandleModListChange(Hashtable propertiesThatChanged) {
-        if (TryParseMods(propertiesThatChanged, out var stubs)) {
-            if (ModManager.HasExactModConfigurationLoaded(stubs)) {
-                Debug.Log("Got new mods from server, but we have the exact same configuration loaded already! Woo!");
-            } else {
-                MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
-                var roomName = PhotonNetwork.CurrentRoom.Name;
-                yield return PhotonDisconnectCompletely();
-                var boxedSceneLoad = MapLoadingInterop.RequestMapLoad("MainMenu");
-                yield return new WaitUntil(()=>boxedSceneLoad.IsDone);
-                GameManager.instance.StartCoroutine(JoinMatchRoutine(roomName, stubs));
+        if (hasBasisRuntime) {
+            Task disconnectTask = KoboldKareConnectionService.DisconnectAsync();
+            yield return new WaitUntil(() => disconnectTask.IsCompleted);
+            if (disconnectTask.IsFaulted) {
+                Debug.LogError($"Basis disconnect failed: {disconnectTask.Exception}");
             }
         }
+
+        appliedBasisSessionRevision = 0;
+        cheatsEnabled = false;
+        PopupHandler.instance?.ClearAllPopups();
     }
 
-    public void OnPlayerPropertiesUpdate(Player targetPlayer, Hashtable changedProps) {
-    }
-    public void OnWebRpcResponse(OperationResponse response) {
+    private IEnumerator DisconnectBasisRoutine() {
+        yield return DisconnectForSceneChange();
+        MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.MainMenu);
     }
 
     public void OnOwnershipRequest(PhotonView targetView, Player requestingPlayer) {
-        Kobold k = targetView.GetComponent<Kobold>();
-        if (k != (Kobold)PhotonNetwork.LocalPlayer.TagObject) {
+        if (targetView == null || requestingPlayer == null) {
+            return;
+        }
+
+        Kobold kobold = targetView.GetComponent<Kobold>();
+        if (kobold != (Kobold)PhotonNetwork.LocalPlayer.TagObject) {
             targetView.TransferOwnership(requestingPlayer);
-        } else {
-            bool permission = PlayerPossession.TryGetPlayerInstance(out var instance) && instance.kobold == k && GameManager.GetPlayerControls().Player.Jump.IsPressed();
-            if (!permission || requestingPlayer == PhotonNetwork.LocalPlayer) {
-                targetView.TransferOwnership(requestingPlayer);
-            }
+            return;
+        }
+
+        bool denyTemporarySteal =
+            PlayerPossession.TryGetPlayerInstance(out PlayerPossession possession) &&
+            possession.kobold == kobold &&
+            !possession.IsBasisVRInputActive &&
+            GameManager.GetPlayerControls().Player.Jump.IsPressed();
+        if (!denyTemporarySteal || requestingPlayer == PhotonNetwork.LocalPlayer) {
+            targetView.TransferOwnership(requestingPlayer);
         }
     }
 
@@ -393,47 +392,248 @@ public class NetworkManager : SingletonScriptableObject<NetworkManager>, IConnec
     public void OnOwnershipTransferFailed(PhotonView targetView, Player senderOfFailedRequest) {
     }
 
-    private bool cheatsEnabled = false;
     public bool GetCheatsEnabled() => cheatsEnabled;
 
-    public void OnEvent(EventData photonEvent) {
-        if (photonEvent.Code == CustomInstantiationEvent) {
-            object[] objectData = (object[])photonEvent.CustomData;
-            var existingView = PhotonNetwork.GetPhotonView((int)objectData[1]);
-            if (existingView != null) {
-                existingView.ViewID = 0;
-                Destroy(existingView.gameObject);
-            }
+    public bool SendChat(string message) {
+        if (string.IsNullOrWhiteSpace(message)) {
+            return false;
+        }
+        message = message.TrimEnd();
 
-            GameObject obj = PhotonNetwork.PrefabPool.Instantiate((string)objectData[0], Vector3.zero, Quaternion.identity);
-            var photonView = obj.GetComponent<PhotonView>();
-            photonView.ViewID = (int)objectData[1];
-            obj.SetActive(true);
+        KoboldKareSessionCoordinator coordinator = KoboldKareSessionCoordinator.Instance;
+        if (coordinator != null && !PhotonNetwork.OfflineMode) {
+            return coordinator.SendChat(message);
+        }
+
+        Player player = PhotonNetwork.LocalPlayer;
+        string displayName = player != null ? player.NickName : "Player";
+        CheatsProcessor.AppendText($"{displayName}: {message}\n");
+        Kobold kobold = player?.TagObject as Kobold;
+        if (kobold != null) {
+            Chatter chatter = kobold.GetComponent<Chatter>();
+            if (chatter != null) {
+                chatter.DisplayMessage(message, 1f);
+            }
+            CheatsProcessor.ProcessCommand(kobold, message);
+        }
+        return true;
+    }
+
+    public bool SetCheatsEnabled(bool enabled) {
+        KoboldKareSessionCoordinator coordinator = KoboldKareSessionCoordinator.Instance;
+        if (coordinator == null || PhotonNetwork.OfflineMode) {
+            if (!PhotonNetwork.OfflineMode && PhotonNetwork.IsConnected) {
+                return false;
+            }
+            cheatsEnabled = enabled;
+            return true;
+        }
+        return coordinator.SetCheatsEnabled(enabled);
+    }
+
+    public void ApplyBasisSessionState(KoboldKareSessionState state) {
+        if (PhotonNetwork.OfflineMode) {
+            return;
+        }
+        if (state.Revision != 0 && appliedBasisSessionRevision != 0 &&
+            !IsRevisionNewer(state.Revision, appliedBasisSessionRevision)) {
             return;
         }
 
-        if (photonEvent.Code == CustomChatEvent) {
-            var player = PhotonNetwork.CurrentRoom.GetPlayer(photonEvent.Sender, true);
-            var chatKobold = (Kobold)player.TagObject;
-            var message = (string)photonEvent.CustomData;
-            CheatsProcessor.AppendText($"{player.NickName}: {message}\n");
-            if (chatKobold != null) {
-                var chatter = chatKobold.GetComponent<Chatter>();
-                chatter.DisplayMessage((string)photonEvent.CustomData, 1f);
-                if (Equals(player, PhotonNetwork.LocalPlayer)) {
-                    CheatsProcessor.ProcessCommand(chatKobold, message);
+        cheatsEnabled = state.CheatsEnabled;
+        selectedMap = state.MapName;
+        if (state.Revision != 0) {
+            appliedBasisSessionRevision = state.Revision;
+        }
+
+        if (!TryParseMods(state.ModListJson, out List<ModManager.ModStub> stubs)) {
+            Debug.LogError("Basis KoboldKare session supplied an invalid mod list.");
+            PopupHandler.instance?.SpawnPopup(
+                "Disconnect",
+                true,
+                default,
+                "Server supplied an invalid mod list.");
+            return;
+        }
+
+        if (basisSessionTransitionRunning || GameManager.instance == null) {
+            return;
+        }
+        bool needsMods = !HasExactModConfigurationLoaded(stubs);
+        bool needsMap = !string.IsNullOrWhiteSpace(state.MapName) &&
+                        SceneManager.GetActiveScene().name != state.MapName;
+        bool needsPlayer = PhotonNetwork.LocalPlayer?.TagObject is not Kobold;
+        if (!needsMods && !needsMap && !needsPlayer) {
+            return;
+        }
+
+        GameManager.instance.StartCoroutine(ApplyBasisSessionStateRoutine(state, stubs));
+    }
+
+    private IEnumerator ApplyBasisSessionStateRoutine(
+        KoboldKareSessionState state,
+        List<ModManager.ModStub> modsToLoad) {
+        if (basisSessionTransitionRunning) {
+            yield break;
+        }
+
+        basisSessionTransitionRunning = true;
+        try {
+            MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.Loading);
+            PopupHandler.instance?.SpawnPopup("Connect");
+
+            if (!HasExactModConfigurationLoaded(modsToLoad)) {
+                if (SceneManager.GetActiveScene().name != "ErrorScene") {
+                    var unloadHandle = MapLoadingInterop.RequestMapLoad("ErrorScene");
+                    yield return new WaitUntil(() => unloadHandle.IsDone);
+                }
+
+                yield return GameManager.instance.StartCoroutine(ModManager.SetLoadedMods(modsToLoad));
+                if (ModManager.GetFailedToLoadMods()) {
+                    MainMenu.ShowMenuStatic(MainMenu.MainMenuMode.MainMenu);
+                    PopupHandler.instance?.ClearAllPopups();
+                    PopupHandler.instance?.SpawnPopup(
+                        "Disconnect",
+                        true,
+                        default,
+                        "Failed to download mods set by the Basis server.");
+                    yield break;
                 }
             }
-            return;
+
+            if (!string.IsNullOrWhiteSpace(state.MapName) &&
+                SceneManager.GetActiveScene().name != state.MapName) {
+                var mapHandle = MapLoadingInterop.RequestMapLoad(state.MapName);
+                yield return new WaitUntil(() => mapHandle.IsDone);
+            }
+
+            PopupHandler.instance?.ClearAllPopups();
+            SpawnControllablePlayer();
+        } finally {
+            basisSessionTransitionRunning = false;
+        }
+    }
+
+    private IEnumerator PrepareForBasisConnectionSwitch() {
+        bool hasBasisConnection =
+            Basis.Scripts.Networking.BasisNetworkConnection.LocalPlayerIsConnected ||
+            Basis.Scripts.Networking.BasisNetworkConnection.LocalPlayerPeer != null;
+        bool shouldResetRuntime = hasBasisConnection || PhotonNetwork.OfflineMode;
+        if (!shouldResetRuntime) {
+            yield break;
         }
 
-        if (photonEvent.Code == CustomCheatEvent) {
-            cheatsEnabled = (bool)photonEvent.CustomData;
-            return;
+        if (SceneManager.GetActiveScene().name != "ErrorScene") {
+            var unloadHandle = MapLoadingInterop.RequestMapLoad("ErrorScene");
+            yield return new WaitUntil(() => unloadHandle.IsDone);
+            yield return null;
         }
 
-        if (photonEvent.Code == 203) {
-            TriggerDisconnect();
+        if (Basis.Scripts.Networking.BasisNetworkManagement.IsInitialized || hasBasisConnection) {
+            Task resetTask = KoboldKareConnectionService.DisconnectAsync();
+            yield return new WaitUntil(() => resetTask.IsCompleted);
+            if (resetTask.IsFaulted) {
+                throw resetTask.Exception?.GetBaseException() ??
+                      new InvalidOperationException("Basis runtime reset failed.");
+            }
+            if (resetTask.IsCanceled) {
+                throw new OperationCanceledException("Basis runtime reset was cancelled.");
+            }
         }
+
+        PhotonNetwork.OfflineMode = false;
+        appliedBasisSessionRevision = 0;
+    }
+
+    private static bool HasExactModConfigurationLoaded(IList<ModManager.ModStub> requested) {
+        List<ModManager.ModStub> loaded = ModManager.GetModsWithLoadedAssets();
+        if (loaded.Count != requested.Count) {
+            return false;
+        }
+
+        for (int i = 0; i < requested.Count; i++) {
+            bool found = false;
+            for (int j = 0; j < loaded.Count; j++) {
+                if (requested[i].GetRepresentedBy(loaded[j])) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static bool TryParseBasisEndpoint(string endpoint, out string address, out ushort port) {
+        address = string.Empty;
+        port = KoboldKareConnectionService.DefaultPort;
+        if (string.IsNullOrWhiteSpace(endpoint)) {
+            return false;
+        }
+
+        string value = endpoint.Trim();
+        if (value[0] == '[') {
+            int closingBracket = value.IndexOf(']');
+            if (closingBracket <= 1) {
+                return false;
+            }
+            address = value.Substring(1, closingBracket - 1);
+            if (closingBracket + 1 == value.Length) {
+                return true;
+            }
+            if (value[closingBracket + 1] != ':' ||
+                !ushort.TryParse(value.Substring(closingBracket + 2), out port)) {
+                return false;
+            }
+            return true;
+        }
+
+        int firstColon = value.IndexOf(':');
+        int lastColon = value.LastIndexOf(':');
+        if (firstColon >= 0 && firstColon == lastColon) {
+            address = value.Substring(0, firstColon);
+            return !string.IsNullOrWhiteSpace(address) &&
+                   ushort.TryParse(value.Substring(firstColon + 1), out port);
+        }
+
+        // Unbracketed IPv6 is accepted using the default KoboldKare/Basis port.
+        address = value;
+        return true;
+    }
+
+    private static void ThrowIfTaskFailed(Task task, string fallbackMessage) {
+        if (task.IsFaulted) {
+            throw task.Exception?.GetBaseException() ?? new InvalidOperationException(fallbackMessage);
+        }
+        if (task.IsCanceled) {
+            throw new OperationCanceledException(fallbackMessage);
+        }
+    }
+
+    private static string ResolveDisplayName() {
+        if (!string.IsNullOrWhiteSpace(SettingNickname.CurrentNickname)) {
+            return SettingNickname.CurrentNickname;
+        }
+        BasisLocalPlayerNameResolver.TryResolve(out string displayName);
+        return string.IsNullOrWhiteSpace(displayName) ? SystemInfo.deviceName : displayName;
+    }
+
+    private static bool IsRevisionNewer(uint revision, uint previous) {
+        return revision != previous && unchecked(revision - previous) < 0x80000000U;
+    }
+}
+
+internal static class BasisLocalPlayerNameResolver {
+    public static bool TryResolve(out string displayName) {
+        displayName = null;
+        Basis.Scripts.BasisSdk.Players.BasisLocalPlayer player =
+            Basis.Scripts.BasisSdk.Players.BasisLocalPlayer.Instance;
+        if (player == null || string.IsNullOrWhiteSpace(player.DisplayName)) {
+            return false;
+        }
+        displayName = player.DisplayName;
+        return true;
     }
 }

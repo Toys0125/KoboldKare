@@ -16,6 +16,7 @@ public class PlayerPossession : MonoBehaviourPun {
     private Grabber grabber;
     
     private bool movementEnabled = true;
+    private bool basisVRInputActive;
     private static PlayerPossession playerInstance;
 
     public static bool TryGetPlayerInstance(out PlayerPossession playerInstance) {
@@ -25,6 +26,119 @@ public class PlayerPossession : MonoBehaviourPun {
 
     public void SetMovementEnabled(bool newMovementEnabled) {
         movementEnabled = newMovementEnabled;
+    }
+
+    public bool IsBasisVRInputActive => basisVRInputActive;
+
+    public void SetBasisVRInputActive(bool active) {
+        if (basisVRInputActive == active) {
+            return;
+        }
+
+        basisVRInputActive = active;
+        var controls = GameManager.GetPlayerControls();
+        if (active) {
+            controls.Player.Disable();
+            OrbitCamera.SetTracking(false);
+            controller.inputDir = Vector3.zero;
+            controller.inputJump = false;
+            grabber.TryDrop();
+            pGrabber.TryDrop();
+            grabbing = false;
+            switchedMode = false;
+            rotating = false;
+            trackingHip = false;
+        } else if (isActiveAndEnabled) {
+            controls.Player.Enable();
+            OrbitCamera.SetTracking(true);
+            controller.inputDir = Vector3.zero;
+            controller.inputJump = false;
+        }
+    }
+
+    public void ApplyBasisVRMovement(Vector2 movement, Quaternion viewRotation, bool jumpHeld, bool walkHeld) {
+        if (!basisVRInputActive || !movementEnabled) {
+            controller.inputDir = Vector3.zero;
+            controller.inputJump = false;
+            return;
+        }
+
+        Vector3 forward = viewRotation * Vector3.forward;
+        forward.y = 0f;
+        if (forward.sqrMagnitude < 0.0001f) {
+            forward = transform.forward;
+        }
+        forward.Normalize();
+        Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+        controller.inputDir = forward * movement.y + right * movement.x;
+        controller.inputJump = jumpHeld;
+        controller.inputWalking = walkHeld;
+
+        Quaternion localView = Quaternion.Inverse(kobold.transform.rotation) * viewRotation;
+        Vector3 euler = localView.eulerAngles;
+        float yaw = Mathf.DeltaAngle(0f, euler.y);
+        float pitch = Mathf.DeltaAngle(0f, euler.x);
+        characterControllerAnimator.SetEyeRot(new Vector2(yaw, -pitch));
+    }
+
+    public void BasisVRGrabPressed(bool precisionMode) {
+        if (!basisVRInputActive || pauseInput) {
+            return;
+        }
+
+        characterControllerAnimator.inputGrabbing = true;
+        grabbing = true;
+        switchedMode = precisionMode;
+        if (precisionMode) {
+            PrecisionGrabber.SetPinVisibility(true);
+            pGrabber.SetPreviewState(true);
+            pGrabber.TryGrab();
+        } else if (!pGrabber.HasGrab()) {
+            grabber.TryGrab(multiGrabMode);
+        }
+    }
+
+    public void BasisVRGrabReleased() {
+        if (!basisVRInputActive) {
+            return;
+        }
+
+        characterControllerAnimator.inputGrabbing = false;
+        grabbing = false;
+        switchedMode = false;
+        PrecisionGrabber.SetPinVisibility(false);
+        pGrabber.SetPreviewState(false);
+        grabber.TryDrop();
+        pGrabber.TryDrop();
+    }
+
+    public void BasisVRActivatePressed() {
+        if (!basisVRInputActive) {
+            return;
+        }
+        grabber.TryActivate();
+        pGrabber.TryFreeze();
+        characterControllerAnimator.inputActivate = true;
+    }
+
+    public void BasisVRActivateReleased() {
+        if (!basisVRInputActive) {
+            return;
+        }
+        grabber.TryStopActivate();
+        characterControllerAnimator.inputActivate = false;
+    }
+
+    public void BasisVRUse() {
+        if (basisVRInputActive) {
+            user.Use();
+        }
+    }
+
+    public void BasisVRUnfreeze() {
+        if (basisVRInputActive) {
+            pGrabber.TryUnfreeze();
+        }
     }
 
     public bool inputRagdolled;
@@ -164,6 +278,10 @@ public class PlayerPossession : MonoBehaviourPun {
 
     private void OnDisable() {
         var controls = GameManager.GetPlayerControls();
+        if (basisVRInputActive) {
+            basisVRInputActive = false;
+            controls.Player.Enable();
+        }
         if (playerInstance == this) {
             playerInstance = null;
         }
@@ -274,6 +392,16 @@ public class PlayerPossession : MonoBehaviourPun {
 
     // Update is called once per frame
     void Update() {
+        if (basisVRInputActive) {
+            if (kobold.activeDicks.Count > 0 && !dickErectionHidable.activeInHierarchy) {
+                dickErectionHidable.SetActive(true);
+            }
+            if (kobold.activeDicks.Count == 0 && dickErectionHidable.activeInHierarchy) {
+                dickErectionHidable.SetActive(false);
+            }
+            return;
+        }
+
         var controls = GameManager.GetPlayerControls();
         if (isActiveAndEnabled && movementEnabled) {
             var newCrouchValue = controls.Player.Crouch.ReadValue<float>();

@@ -15,6 +15,7 @@ using UnityEngine.VFX;
 public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
     [SerializeField] private GameObject handDisplayPrefab;
     [SerializeField] private Transform view;
+    private bool useViewTransformForAim;
     [SerializeField] private VisualEffectAsset freezeVFX;
     [SerializeField] private AudioPack unfreezeSound;
     private Kobold kobold;
@@ -49,8 +50,16 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
         previewHandAnimator.gameObject.SetActive(false);
     }
 
-    public void SetView(Transform newView) {
+    public void SetView(Transform newView, bool useViewTransformForAim = false) {
         view = newView;
+        this.useViewTransformForAim = useViewTransformForAim;
+    }
+
+    private Quaternion GetAimRotation() {
+        if (useViewTransformForAim && view != null) {
+            return view.rotation;
+        }
+        return OrbitCamera.GetPlayerIntendedRotation();
     }
 
     private static RaycastHit[] hits = new RaycastHit[10];
@@ -92,6 +101,7 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
         private Kobold owner;
         private Vector3 bodyAnchor;
         private Transform view;
+        private bool useViewTransformForAim;
         private bool frozen;
         private AudioPack unfreezePack;
         private Quaternion startRotation;
@@ -158,13 +168,14 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
 
             return configurableJoint;
         }
-        public Grab(Kobold owner, GameObject handDisplayPrefab, Transform view, Collider collider,
+        public Grab(Kobold owner, GameObject handDisplayPrefab, Transform view, bool useViewTransformForAim, Collider collider,
             Vector3 localColliderPosition, Vector3 localHitNormal, AudioPack unfreezePack) {
             this.collider = collider;
             this.localColliderPosition = localColliderPosition;
             this.localHitNormal = localHitNormal;
             this.owner = owner;
             this.view = view;
+            this.useViewTransformForAim = useViewTransformForAim;
             this.unfreezePack = unfreezePack;
             body = collider.GetComponentInParent<Rigidbody>();
             if (body == null ) {
@@ -298,8 +309,9 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
                 slerpDrive.positionDamper = 2f;
                 joint.slerpDrive = slerpDrive;
             }
-            savedQuaternion = Quaternion.AngleAxis(-delta.x, OrbitCamera.GetPlayerIntendedRotation()*Vector3.up)*savedQuaternion;
-            savedQuaternion = Quaternion.AngleAxis(delta.y, OrbitCamera.GetPlayerIntendedRotation()*Vector3.right)*savedQuaternion;
+            Quaternion aimRotation = GetAimRotation();
+            savedQuaternion = Quaternion.AngleAxis(-delta.x, aimRotation*Vector3.up)*savedQuaternion;
+            savedQuaternion = Quaternion.AngleAxis(delta.y, aimRotation*Vector3.right)*savedQuaternion;
         }
 
         public void AdjustDistance(float delta) {
@@ -312,7 +324,8 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
                 return;
             }
 
-            Vector3 holdPoint = GetViewPos() + OrbitCamera.GetPlayerIntendedRotation() * Vector3.forward * distance;
+            Quaternion aimRotation = GetAimRotation();
+            Vector3 holdPoint = GetViewPos() + aimRotation * Vector3.forward * distance;
 
             if (joint != null) {
                 joint.connectedAnchor = holdPoint;
@@ -324,7 +337,7 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
             // Manual axis alignment, for pole jumps!
             if (!body.transform.IsChildOf(owner.body.transform) && !body.isKinematic) {
                 body.velocity -= body.velocity * 0.5f;
-                Vector3 axis = OrbitCamera.GetPlayerIntendedRotation()*Vector3.forward;
+                Vector3 axis = aimRotation*Vector3.forward;
                 Vector3 jointPos = body.transform.TransformPoint(bodyAnchor);
                 Vector3 center = (GetViewPos() + jointPos) / 2f;
                 Vector3 wantedPosition1 = center - axis * distance / 2f;
@@ -362,11 +375,21 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
             }
         }
         private Vector3 GetViewPos() {
+            if (useViewTransformForAim && view != null) {
+                return view.position;
+            }
             bool isPlayerControlled = (Kobold)PhotonNetwork.LocalPlayer.TagObject == owner;
             if (!owner.photonView.IsMine || !isPlayerControlled) {
                 return view.position;
             }
             return OrbitCamera.GetCamera().transform.position;
+        }
+
+        private Quaternion GetAimRotation() {
+            if (useViewTransformForAim && view != null) {
+                return view.rotation;
+            }
+            return OrbitCamera.GetPlayerIntendedRotation();
         }
     }
 
@@ -443,6 +466,9 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
     }
 
     private Vector3 GetViewPos() {
+        if (useViewTransformForAim && view != null) {
+            return view.position;
+        }
         bool isPlayerControlled = (Kobold)PhotonNetwork.LocalPlayer.TagObject == kobold;
         if (!photonView.IsMine || !isPlayerControlled) {
             return view.position;
@@ -451,7 +477,7 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
     }
 
     private bool TryRaycastGrab(float maxDistance, out RaycastHit? previewHit) {
-        int numHits = Physics.RaycastNonAlloc(GetViewPos(), OrbitCamera.GetPlayerIntendedRotation() * Vector3.forward , hits, maxDistance, GameManager.instance.precisionGrabMask, QueryTriggerInteraction.Ignore);
+        int numHits = Physics.RaycastNonAlloc(GetViewPos(), GetAimRotation() * Vector3.forward , hits, maxDistance, GameManager.instance.precisionGrabMask, QueryTriggerInteraction.Ignore);
         if (numHits == 0) {
             previewHit = null;
             return false;
@@ -522,7 +548,7 @@ public class PrecisionGrabber : MonoBehaviourPun, IPunObservable, ISavable {
             return;
         }
         Collider[] colliders = otherPhotonView.GetComponentsInChildren<Collider>();
-        currentGrab = new Grab(kobold, previewHandAnimator.gameObject, view, colliders[colliderNum], localHit, localHitNormal, unfreezeSound);
+        currentGrab = new Grab(kobold, previewHandAnimator.gameObject, view, useViewTransformForAim, colliders[colliderNum], localHit, localHitNormal, unfreezeSound);
         if (!currentGrab.Valid()) {
             currentGrab = null;
             return;

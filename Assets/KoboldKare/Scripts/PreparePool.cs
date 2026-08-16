@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using JetBrains.Annotations;
 using UnityEngine;
-using Photon.Pun;
+using KoboldKare.Basis.Networking;
 using UnityEngine.Serialization;
 
 public class PreparePool : MonoBehaviour {
@@ -14,8 +14,6 @@ public class PreparePool : MonoBehaviour {
     }
     
     private Dictionary<string,List<GameObjectWithStubPair>> dynamicPrefabs = new();
-    private DefaultPool pool => (DefaultPool)PhotonNetwork.PrefabPool;
-
     private void Awake() {
         if (instance != null && instance != this) {
             Destroy(gameObject);
@@ -29,7 +27,6 @@ public class PreparePool : MonoBehaviour {
     public static bool HasPrefab(string assetName) => instance.dynamicPrefabs.ContainsKey(assetName);
     
     private void InternalAddPrefab(string assetName, GameObject prefab, ModManager.ModStub? stub) {
-        pool.ResourceCache.Remove(assetName);
         if (!dynamicPrefabs.ContainsKey(assetName)) {
             dynamicPrefabs.Add(assetName, new List<GameObjectWithStubPair>());
         }
@@ -39,7 +36,7 @@ public class PreparePool : MonoBehaviour {
             stub = stub
         });
         list.Sort(CompareModdedPrefab);
-        pool.ResourceCache.Add(assetName, list[^1].obj);
+        KoboldKareBasisNetwork.RegisterRuntimePrefab(assetName, list[^1].obj);
     }
 
     private int CompareModdedPrefab(GameObjectWithStubPair a, GameObjectWithStubPair b) {
@@ -70,11 +67,10 @@ public class PreparePool : MonoBehaviour {
         }
         if (prefabList.Count == 0) {
             dynamicPrefabs.Remove(assetName);
-            pool.ResourceCache.Remove(assetName);
+            KoboldKareBasisNetwork.UnregisterRuntimePrefab(assetName);
         } else {
             prefabList.Sort(CompareModdedPrefab);
-            pool.ResourceCache.Remove(assetName);
-            pool.ResourceCache.Add(assetName, prefabList[^1].obj);
+            KoboldKareBasisNetwork.RegisterRuntimePrefab(assetName, prefabList[^1].obj);
         }
     }
 

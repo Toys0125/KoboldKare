@@ -3,8 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
-using ExitGames.Client.Photon.StructWrapping;
 using Photon.Pun;
+using KoboldKare.Basis.Networking;
 using UnityEngine;
 
 [System.Serializable]
@@ -26,13 +26,9 @@ public class CommandList : Command {
         bool didSomething = false;
         if (args.Length == 1 || args[1] == "prefabs" || args[1] == "objects") {
 
-            if (PhotonNetwork.PrefabPool is not DefaultPool pool)
-            {
-                throw new CheatsProcessor.CommandException("Failed to find PhotonNetwork pool, are you online??");
-            }
-
+            var prefabs = KoboldKareRuntimePrefabRegistry.Snapshot();
             output.Append("Objects = {\n");
-            foreach (var keyValuePair in pool.ResourceCache) {
+            foreach (var keyValuePair in prefabs) {
                 output.Append($"{keyValuePair.Key},\n");
             }
             output.Append("}\n");
@@ -40,13 +36,9 @@ public class CommandList : Command {
         }
         if (args.Length == 1 || args[1] == "kobolds") {
 
-            if(PhotonNetwork.PrefabPool is not DefaultPool pool)
-            {
-                throw new CheatsProcessor.CommandException("Failed to find PhotonNetwork pool, are you online??");
-            }
-
+            var prefabs = KoboldKareRuntimePrefabRegistry.Snapshot();
             output.Append("Kobolds = {\n");
-            foreach (var keyValuePair in pool.ResourceCache)
+            foreach (var keyValuePair in prefabs)
             {
                 if(keyValuePair.Value.GetComponent<Kobold>() == null)
                 {

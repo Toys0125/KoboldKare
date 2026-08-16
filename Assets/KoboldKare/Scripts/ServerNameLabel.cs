@@ -1,15 +1,27 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using Photon.Pun;
+using Basis.Scripts.Networking;
+using TMPro;
 using UnityEngine;
 
+[RequireComponent(typeof(TMP_Text))]
 public class ServerNameLabel : MonoBehaviour {
-    private void OnEnable() {
-        if (PhotonNetwork.InRoom) {
-            GetComponent<TMPro.TMP_Text>().text = PhotonNetwork.CurrentRoom.Name;
+    private TMP_Text label;
+
+    private void Awake() {
+        label = GetComponent<TMP_Text>();
+    }
+
+    private void Update() {
+        if (!BasisNetworkConnection.LocalPlayerIsConnected) {
+            label.text = string.Empty;
+            return;
+        }
+
+        if (BasisNetworkManagement.IsHostMode) {
+            label.text = string.IsNullOrWhiteSpace(BasisNetworkManagement.HostServerName)
+                ? "KoboldKare"
+                : BasisNetworkManagement.HostServerName;
         } else {
-            GetComponent<TMPro.TMP_Text>().text = "";
+            label.text = $"{BasisNetworkManagement.Ip}:{BasisNetworkManagement.Port}";
         }
     }
 }

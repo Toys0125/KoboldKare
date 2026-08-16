@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using NetStack.Serialization;
 using Photon.Pun;
+using KoboldKare.Basis.Networking;
 using UnityEngine;
 
 [System.Serializable]
@@ -30,9 +31,8 @@ public class CommandGive : Command {
             throw new CheatsProcessor.CommandException("/give requires at least one argument. Use /list to find what you can spawn.");
         }
 
-        DefaultPool pool = PhotonNetwork.PrefabPool as DefaultPool;
         var koboldTransform = kobold.hip.transform;
-        if (pool != null && pool.ResourceCache.ContainsKey(args[1])) {
+        if (KoboldKareBasisNetwork.IsRegisteredPrefab(args[1])) {
             PhotonNetwork.Instantiate(args[1], koboldTransform.position + koboldTransform.forward, Quaternion.identity);
             output.Append($"Spawned {args[1]}.\n");
             return;
@@ -95,11 +95,9 @@ public class CommandGive : Command {
             yield break;
         }
 
-        if (PhotonNetwork.PrefabPool is DefaultPool pool) {
-            foreach (var pair in pool.ResourceCache) {
-                if(pair.Key.Contains(text, System.StringComparison.OrdinalIgnoreCase)) {
-                    yield return new(pair.Key);
-                }
+        foreach (var pair in KoboldKareRuntimePrefabRegistry.Snapshot()) {
+            if(pair.Key.Contains(text, System.StringComparison.OrdinalIgnoreCase)) {
+                yield return new(pair.Key);
             }
         }
 

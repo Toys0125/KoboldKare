@@ -1,0 +1,20 @@
+{
+  "name": "KoboldKare.Basis.Editor",
+  "rootNamespace": "KoboldKare.Basis.Editor",
+  "references": [
+    "Basis.Setup.Editor",
+    "Unity.Addressables",
+    "Unity.Addressables.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

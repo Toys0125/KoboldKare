@@ -1,9 +1,7 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Text;
-using ExitGames.Client.Photon;
 using Photon.Pun;
-using Photon.Realtime;
 using UnityEngine;
 
 public class CheatsProcessor : MonoBehaviour {
@@ -40,11 +38,7 @@ public class CheatsProcessor : MonoBehaviour {
     }
 
     public static void SetCheatsEnabled(bool cheatsEnabled) {
-        RaiseEventOptions raiseEventOptions = new RaiseEventOptions() {
-            CachingOption = EventCaching.AddToRoomCache,
-            Receivers = ReceiverGroup.All,
-        };
-        PhotonNetwork.RaiseEvent(NetworkManager.CustomCheatEvent, cheatsEnabled, raiseEventOptions, new SendOptions() { Reliability = true });
+        NetworkManager.instance.SetCheatsEnabled(cheatsEnabled);
     }
 
     public static bool GetCheatsEnabled() {

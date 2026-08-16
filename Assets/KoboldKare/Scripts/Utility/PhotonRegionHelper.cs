@@ -1,45 +1,28 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
-using Photon.Pun;
-using Photon.Realtime;
-using TMPro;
 
-public class PhotonRegionHelper : MonoBehaviourPunCallbacks{
-    public TMPro.TMP_Dropdown dropdown;
-    private RegionHandler cachedHandler;
-    private Region selectedRegion;
-
-    private void ChooseRegion(int id){
-        Debug.Log("CHOOSING REGION: "+dropdown.options[id].text);
-        NetworkManager.instance.JoinLobby(dropdown.options[id].text);
+/// <summary>
+/// Serialized compatibility shell for the old Photon region selector. Basis server directories
+/// expose concrete server endpoints rather than Photon Cloud regions, so region selection is no
+/// longer part of the connection model. Existing UI events may continue calling these methods.
+/// </summary>
+public sealed class PhotonRegionHelper : MonoBehaviour {
+    public void RefreshRegions() {
+        BasisServerBrowserRefresh.RequestRefresh();
     }
 
-    public override void OnRegionListReceived(RegionHandler handler){
-        Debug.Log("[Photon Region Handler] :: Currently connected region: "+PhotonNetwork.CloudRegion);
-        dropdown.ClearOptions();
-        cachedHandler = handler;
-        var returnedRegions = new List<TMP_Dropdown.OptionData>();
-        foreach (var item in cachedHandler.EnabledRegions){
-            returnedRegions.Add(new TMP_Dropdown.OptionData(item.Code));
-        }
-        dropdown.AddOptions(returnedRegions);
-        dropdown.onValueChanged.RemoveListener(ChooseRegion);
-        dropdown.onValueChanged.AddListener(ChooseRegion);
-        if (string.IsNullOrEmpty(PhotonNetwork.CloudRegion)) {
-            Debug.Log("Unknown region, forcing connection to us");
-            NetworkManager.instance.JoinLobby("us");
-        }
+    public void Refresh() {
+        RefreshRegions();
     }
 
-    public override void OnConnectedToMaster(){
-        base.OnConnectedToMaster();
-        Debug.Log("[Photon Region Handler] :: Connected to master");
-        foreach (var item in dropdown.options){
-            if(PhotonNetwork.CloudRegion == item.text) {
-                dropdown.SetValueWithoutNotify(dropdown.options.IndexOf(item));
-            }
-        }
+    public void JoinLobby() {
+        RefreshRegions();
+    }
+
+    public void SetRegion(int ignoredRegionIndex) {
+        RefreshRegions();
+    }
+
+    public void SetRegion(string ignoredRegion) {
+        RefreshRegions();
     }
 }

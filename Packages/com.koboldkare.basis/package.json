@@ -1,0 +1,15 @@
+{
+  "name": "com.koboldkare.basis",
+  "displayName": "KoboldKare Basis Integration",
+  "version": "0.1.0",
+  "description": "KoboldKare-owned integration layer for Basis networking, ownership, spawning and native player/VR runtime.",
+  "author": {
+    "name": "KoboldKare Community"
+  },
+  "license": "AGPL-3.0-or-later",
+  "dependencies": {
+    "com.basis.framework": "0.0.1",
+    "com.basis.sdk": "0.0.1",
+    "com.basis.server": "1.0.0"
+  }
+}

@@ -247,6 +247,9 @@ public class CharacterDescriptor : MonoBehaviour, IPunInstantiateMagicCallback {
         
         var playerPossessionInstance = Instantiate(playerPossessionPrefab, transform);
         possession = playerPossessionInstance.GetComponent<PlayerPossession>();
+        if (!playerPossessionInstance.TryGetComponent<KoboldKareBasisPlayerBridge>(out _)) {
+            playerPossessionInstance.gameObject.AddComponent<KoboldKareBasisPlayerBridge>();
+        }
         
         chatter = gameObject.AddComponent<Chatter>();
 

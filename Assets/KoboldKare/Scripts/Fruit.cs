@@ -3,7 +3,6 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
-using ExitGames.Client.Photon.StructWrapping;
 using Naelstrof.Inflatable;
 using Photon.Pun;
 using SimpleJSON;
