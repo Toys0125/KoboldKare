@@ -23,7 +23,7 @@ public class PhysicsAudioGroup : ScriptableObject {
         public AudioClip scrapeSound;
     }
     public List<ImpactGroup> impactGroups = new List<ImpactGroup>();
-    public List<PhysicMaterial> associatedMaterials;
+    public List<PhysicsMaterial> associatedMaterials;
 
     // Since these aren't referenced anywhere directly, this is the only way to get them to load properly.
     [RuntimeInitializeOnLoadMethod]

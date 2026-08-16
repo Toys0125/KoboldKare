@@ -70,7 +70,7 @@ public class CharacterDescriptor : MonoBehaviour, IPunInstantiateMagicCallback {
 
     private AudioPack footLand;
     private AudioPack footstepPack;
-    private PhysicMaterial spaceLubeMaterial;
+    private PhysicsMaterial spaceLubeMaterial;
     private VisualEffectAsset circlePoof;
     private VisualEffectAsset walkDust;
     private PlayerPossession playerPossessionPrefab;
@@ -116,7 +116,7 @@ public class CharacterDescriptor : MonoBehaviour, IPunInstantiateMagicCallback {
         tasks = new List<AsyncOperationHandle>();
         var footlandsTask = Addressables.LoadAssetAsync<AudioPack>( "Assets/KoboldKare/ScriptableObjects/SoundPacks/FootLands.asset");
         var defaultFootstepTask =  Addressables.LoadAssetAsync<AudioPack>( "Assets/KoboldKare/ScriptableObjects/SoundPacks/DefaultFootsteps.asset");
-        var physicsMaterialTask =  Addressables.LoadAssetAsync<PhysicMaterial>("Assets/KoboldKare/Scripts/Physics/SpaceLube.physicMaterial");
+        var physicsMaterialTask =  Addressables.LoadAssetAsync<PhysicsMaterial>("Assets/KoboldKare/Scripts/Physics/SpaceLube.physicMaterial");
         var circlePoofVFXTask = Addressables.LoadAssetAsync<VisualEffectAsset>("Assets/KoboldKare/VFX/CirclePoof.vfx");
         var walkDustVFXTask = Addressables.LoadAssetAsync<VisualEffectAsset>("Assets/KoboldKare/VFX/WalkDust.vfx");
         var freezeVFXTask = Addressables.LoadAssetAsync<VisualEffectAsset>("Assets/KoboldKare/VFX/Freeze.vfx");
@@ -475,7 +475,7 @@ public class CharacterDescriptor : MonoBehaviour, IPunInstantiateMagicCallback {
         ragdollBodiesProp.ClearArray();
         foreach (var coll in colliders) {
             var realCollider = coll.Get(animator);
-            realCollider.material = AssetDatabase.LoadAssetAtPath<PhysicMaterial>(AssetDatabase.GUIDToAssetPath("aed15ac3b782c8c4a8403ba6c6039f0e"));
+            realCollider.material = AssetDatabase.LoadAssetAtPath<PhysicsMaterial>(AssetDatabase.GUIDToAssetPath("aed15ac3b782c8c4a8403ba6c6039f0e"));
             var ragdollRigidbody = realCollider.GetComponentInParent<Rigidbody>();
             bool find = false;
             for (int i = 0; i < ragdollBodiesProp.arraySize; i++) {

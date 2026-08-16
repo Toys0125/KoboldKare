@@ -37,7 +37,7 @@ public class FootstepSoundManager : MonoBehaviour {
         AudioClip clip = footstepPack.GetClip();
         if (Physics.Raycast(f.position, Vector3.down, out var hit, 1f, GameManager.instance.walkableGroundMask, QueryTriggerInteraction.Ignore)) {
             TerrainAudio a = hit.collider.GetComponent<TerrainAudio>();
-            PhysicMaterial mat = hit.collider.sharedMaterial;
+            PhysicsMaterial mat = hit.collider.sharedMaterial;
             if (a != null) {
                 mat = a.GetMaterialAtPoint(hit.point);
             }

@@ -11,7 +11,7 @@ public class TerrainAudio : MonoBehaviour {
             layer = l;
         }
         public TerrainLayer layer;
-        public PhysicMaterial material;
+        public PhysicsMaterial material;
     }
     public List<TerrainLayerPhysicsAudioGroupTuple> pairs = new List<TerrainLayerPhysicsAudioGroupTuple>();
     void Start() {
@@ -26,7 +26,7 @@ public class TerrainAudio : MonoBehaviour {
             }
         }
     }
-    public PhysicMaterial GetMaterialAtPoint(Vector3 contactPoint) {
+    public PhysicsMaterial GetMaterialAtPoint(Vector3 contactPoint) {
         int dominantIndex = getDominantTexture(contactPoint);
         if (dominantIndex < pairs.Count && pairs[dominantIndex] != null) {
             return pairs[dominantIndex].material;

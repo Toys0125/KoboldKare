@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public static class PhysicsMaterialDatabase  {
-    private static Dictionary<PhysicMaterial, List<PhysicsAudioGroup>> optimizedLookup = new Dictionary<PhysicMaterial, List<PhysicsAudioGroup>>();
+    private static Dictionary<PhysicsMaterial, List<PhysicsAudioGroup>> optimizedLookup = new Dictionary<PhysicsMaterial, List<PhysicsAudioGroup>>();
     public static void AddToLookup(PhysicsAudioGroup group) {
-        foreach(PhysicMaterial material in group.associatedMaterials) {
+        foreach(PhysicsMaterial material in group.associatedMaterials) {
             if (optimizedLookup.ContainsKey(material)) {
                 if (!optimizedLookup[material].Contains(group)) {
                     optimizedLookup[material].Add(group);
@@ -16,7 +16,7 @@ public static class PhysicsMaterialDatabase  {
             optimizedLookup[material].Add(group);
         }
     }
-    public static PhysicsAudioGroup GetPhysicsAudioGroup(PhysicMaterial material) {
+    public static PhysicsAudioGroup GetPhysicsAudioGroup(PhysicsMaterial material) {
         if (material == null) {
             return null;
         }
