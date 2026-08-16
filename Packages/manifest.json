@@ -51,7 +51,7 @@
     "com.unity.inputsystem": "1.19.0",
     "com.unity.localization": "1.5.12",
     "com.unity.render-pipelines.core": "17.5.0",
-    "com.unity.render-pipelines.universal": "17.5.0",
+    "com.unity.render-pipelines.universal": "https://github.com/BasisVR/Basis.git?path=Basis/Packages/com.unity.render-pipelines.universal#4d234ffba90d52050f291a784f50353fe10ac306",
     "com.unity.scriptablebuildpipeline": "2.6.1",
     "com.unity.services.analytics": "6.3.0",
     "com.unity.services.core": "1.16.0",
