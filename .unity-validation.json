@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "profiles": {
+    "compile": {
+      "compile": true
+    },
+    "test": {
+      "compile": true,
+      "editModeTests": true
+    },
+    "windows-build": {
+      "compile": true,
+      "build": {
+        "target": "StandaloneWindows64",
+        "executeMethod": "Build.BuildWindows"
+      }
+    }
+  }
+}

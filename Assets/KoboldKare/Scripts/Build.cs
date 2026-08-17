@@ -31,7 +31,7 @@ public class Build {
         }
     }
 
-    static void BuildLinux() {
+    public static void BuildLinux() {
         PlayerSettings.SplashScreen.show = false;
         PlayerSettings.SplashScreen.showUnityLogo = false;
         PlayerSettings.SplashScreen.logos = Array.Empty<PlayerSettings.SplashScreenLogo>();
@@ -47,7 +47,7 @@ public class Build {
         EditorApplication.Exit(ResultToExitCode(report.summary.result));
     }
 
-    static void BuildWindows() {
+    public static void BuildWindows() {
         PlayerSettings.SplashScreen.show = false;
         PlayerSettings.SplashScreen.showUnityLogo = false;
         PlayerSettings.SplashScreen.logos = Array.Empty<PlayerSettings.SplashScreenLogo>();
