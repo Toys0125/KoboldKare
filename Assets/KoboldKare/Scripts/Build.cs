@@ -47,28 +47,6 @@ public class Build {
         EditorApplication.Exit(ResultToExitCode(report.summary.result));
     }
 
-    static void BuildMac() {
-        PlayerSettings.SplashScreen.show = false;
-        PlayerSettings.SplashScreen.showUnityLogo = false;
-        PlayerSettings.SplashScreen.logos = Array.Empty<PlayerSettings.SplashScreenLogo>();
-        EditorUserBuildSettings.SetPlatformSettings("Standalone", "CopyPDBFiles", GetIsDevBuild() ? "true" : "false");
-        EditorUserBuildSettings.SetPlatformSettings(
-            "Standalone",
-            "OSXUniversal",
-            "Architecture",
-            "x64ARM64" // Possible values: "x64" "ARM64" "x64ARM64"
-        );
-        EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone,BuildTarget.StandaloneOSX);
-        AddressableAssetSettings.BuildPlayerContent();
-        GetBuildVersion();
-        string output = $"{outputDirectory}KoboldKare.app";
-        Debug.Log($"#### BUILDING TO {output}####");
-        var report = BuildPipeline.BuildPlayer(scenes, output, BuildTarget.StandaloneOSX, GetBuildOptions());
-        Debug.Log("#### BUILD DONE ####");
-        Debug.Log(report.summary);
-        EditorApplication.Exit(ResultToExitCode(report.summary.result));
-    }
-
     static void BuildWindows() {
         PlayerSettings.SplashScreen.show = false;
         PlayerSettings.SplashScreen.showUnityLogo = false;
@@ -85,21 +63,6 @@ public class Build {
         EditorApplication.Exit(ResultToExitCode(report.summary.result));
     }
 
-    static void BuildWindows32() {
-        PlayerSettings.SplashScreen.show = false;
-        PlayerSettings.SplashScreen.showUnityLogo = false;
-        PlayerSettings.SplashScreen.logos = Array.Empty<PlayerSettings.SplashScreenLogo>();
-        EditorUserBuildSettings.SetPlatformSettings("Standalone", "CopyPDBFiles", GetIsDevBuild() ? "true" : "false");
-        EditorUserBuildSettings.SwitchActiveBuildTarget(BuildTargetGroup.Standalone,BuildTarget.StandaloneWindows);
-        AddressableAssetSettings.BuildPlayerContent();
-        GetBuildVersion();
-        string output = $"{outputDirectory}KoboldKare.exe";
-        Debug.Log($"#### BUILDING TO {output}####");
-        var report = BuildPipeline.BuildPlayer(scenes, output, BuildTarget.StandaloneWindows, GetBuildOptions());
-        Debug.Log("#### BUILD DONE ####");
-        Debug.Log(report.summary);
-        EditorApplication.Exit(ResultToExitCode(report.summary.result));
-    }
     private static BuildOptions GetBuildOptions() {
         return GetIsDevBuild() ? BuildOptions.Development : BuildOptions.None;
     }

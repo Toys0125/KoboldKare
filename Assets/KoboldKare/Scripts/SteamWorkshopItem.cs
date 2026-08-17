@@ -583,9 +583,9 @@ public class SteamWorkshopItem {
 			return "For some reason this mod is invalid! The GetStatus() function must have not been updated after IsValid was changed.";
 		}
 		
-		if (!SupportsBuildPlatform(BuildTarget.StandaloneLinux64) || !SupportsBuildPlatform(BuildTarget.StandaloneWindows64) || !SupportsBuildPlatform(BuildTarget.StandaloneOSX)) {
+		if (!SupportsBuildPlatform(BuildTarget.StandaloneLinux64) || !SupportsBuildPlatform(BuildTarget.StandaloneWindows64)) {
 			messageType = MessageType.Error;
-			return "Missing build support for one of the following platforms: Windows, Linux, OSX. Please use Unity Hub to install build support modules.";
+			return "Missing build support for one of the following platforms: Windows or Linux. Please use Unity Hub to install build support modules.";
 		}
 		
 		if (!IsBuilt()) {
@@ -711,21 +711,6 @@ public class SteamWorkshopItem {
 			var linuxManifestPath = $"{linuxBuildPath}/StandaloneLinux64";
 			File.Delete(linuxManifestPath);
 			File.Delete($"{linuxManifestPath}.manifest");
-			
-			var macBuildPath = GetModBuildPath(BuildTarget.StandaloneOSX);
-			var macManifest = modContent.BuildForTarget(BuildTarget.StandaloneOSX, macBuildPath, GetGUID());
-			foreach(var bundleName in macManifest.GetAllAssetBundles()) {
-				if (!bundleName.Contains("shaderbundle")) {
-					var sourcePath = $"{macBuildPath}/{bundleName}";
-					var manifestPath = $"{macBuildPath}/{bundleName}.manifest";
-					File.Delete(sourcePath);
-					File.Delete(manifestPath);
-				}
-			}
-			
-			var macManifestPath = $"{macBuildPath}/StandaloneOSX";
-			File.Delete(macManifestPath);
-			File.Delete($"{macManifestPath}.manifest");
 			
 			lastMessage = "Successfully built! Upload when ready.";
 			lastMessageType = MessageType.Info;

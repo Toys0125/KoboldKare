@@ -65,7 +65,6 @@
     "com.unity.xr.openxr": "1.17.1",
     "com.valvesoftware.openxr.utils": "https://github.com/ValveSoftware/Unity.git?path=com.valvesoftware.openxr.utils#41ca1855174652d288af94a1b83ef76e34b5d4af",
     "com.unity.modules.ai": "1.0.0",
-    "com.unity.modules.androidjni": "1.0.0",
     "com.unity.modules.animation": "1.0.0",
     "com.unity.modules.assetbundle": "1.0.0",
     "com.unity.modules.audio": "1.0.0",
