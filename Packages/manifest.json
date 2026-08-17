@@ -30,7 +30,7 @@
     "org.basisvr.k4os.compression.lz4": "https://github.com/BasisVR/Basis.git?path=Basis/Packages/org.basisvr.k4os.compression.lz4#4d234ffba90d52050f291a784f50353fe10ac306",
     "org.basisvr.newtonsoft.json": "https://github.com/BasisVR/Basis.git?path=Basis/Packages/org.basisvr.newtonsoft.json#4d234ffba90d52050f291a784f50353fe10ac306",
     "org.basisvr.simplebase": "https://github.com/BasisVR/Basis.git?path=Basis/Packages/org.basisvr.simplebase#4d234ffba90d52050f291a784f50353fe10ac306",
-    "com.mackysoft.serializereference-extensions": "https://github.com/mackysoft/Unity-SerializeReferenceExtensions.git?path=Assets/MackySoft/MackySoft.SerializeReferenceExtensions",
+    "com.mackysoft.serializereference-extensions": "file:com.mackysoft.serializereference-extensions",
     "com.naelstrof.extensions": "https://github.com/naelstrof/com.naelstrof.extensions.git#v0.0.2",
     "com.naelstrof.jigglephysics": "https://github.com/naelstrof/UnityJigglePhysics.git#v10.3.0",
     "com.naelstrof.mozzarellatech": "https://github.com/naelstrof/UnityMozzarellaTech.git#upm",
