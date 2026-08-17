@@ -14,9 +14,22 @@ public class Build {
     private static string outputDirectory {
         get {
             string dir = Environment.GetEnvironmentVariable("BUILD_DIR");
-            if (dir == null) {
-                throw new UnityException("Tried to build game without specifying build directory!");
+            if (string.IsNullOrWhiteSpace(dir)) {
+                string[] args = Environment.GetCommandLineArgs();
+                for (int i = 0; i < args.Length - 1; i++) {
+                    if (args[i] == "-logFile") {
+                        string logDirectory = Path.GetDirectoryName(Path.GetFullPath(args[i + 1]));
+                        if (!string.IsNullOrEmpty(logDirectory)) {
+                            dir = Path.Combine(logDirectory, "player");
+                        }
+                        break;
+                    }
+                }
             }
+            if (string.IsNullOrWhiteSpace(dir)) {
+                dir = Path.Combine(Directory.GetParent(Application.dataPath).FullName, "Build");
+            }
+            Directory.CreateDirectory(dir);
             return string.Format("{0}{1}", dir.TrimEnd(Path.DirectorySeparatorChar), Path.DirectorySeparatorChar);
         }
     }
