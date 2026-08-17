@@ -23,6 +23,12 @@ MonoBehaviour:
     m_SerializedLabels:
     - default
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5f177937839a2994387177d30f034036
+    m_Address: Assets/KoboldKare/Models/WinePress.blend
+    m_ReadOnly: 0
+    m_SerializedLabels:
+    - default
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 372cea14feaf6af47b64a97b7b3e5a6a
     m_Address: Assets/KoboldKare/Models/Terrain/TerrainWrap_Clone__89.fbx
     m_ReadOnly: 0
